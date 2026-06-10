@@ -1,6 +1,6 @@
 # Kronicle — Design Document
 
-> Written 2026-06-09. Updated 2026-06-10: renamed to Kronicle, design review fixes (immutable IDs, status column, auth proxy, quick capture, build phases); added Web UI Design (typography + warm editorial theme); added writing-tool features (backlinks, editor spec, backups, AI ground rules, revisions, era validation, server-side slug rename).
+> Written 2026-06-09. Updated 2026-06-10: renamed to Kronicle, design review fixes (immutable IDs, status column, auth proxy, quick capture, build phases); added Web UI Design (typography + warm editorial theme); added writing-tool features (backlinks, editor spec, backups, AI ground rules, revisions, era validation, server-side slug rename); added AI chat (per-entity tool-calling chat, approval-gated writes).
 > This is the reference for building the app.
 > When building, read this first. When the design changes, update this.
 
@@ -136,7 +136,7 @@ Media files are served through the Worker (`GET /api/media/:id/file` streams fro
 | `content` | TEXT | The Markdown prose as it was before the save |
 | `created_at` | TEXT | ISO timestamp |
 
-Snapshot taken on every content-changing save; keep the last 20 per entity. Insurance against bad rewrites and overeager AI accepts. Server-only — excluded from sync and export.
+Snapshot taken on every content-changing save; keep the last 20 per entity. Insurance against bad rewrites, overeager AI accepts, and approved chat edits. Server-only — excluded from sync and export.
 
 ---
 
@@ -320,13 +320,62 @@ DELETE /api/media/:id                       → deletes row + R2 object
 POST   /api/ai/polish                       → { content, notes, entity_type, metadata }
 POST   /api/ai/expand                       → { summary, entity_type, metadata }
 POST   /api/ai/suggest-relationships        → { entity_id } → candidate targets + relationship types
+POST   /api/ai/chat                         → { entity_id?, messages } → SSE: text + change proposals
 ```
 
 **Ground rules:**
 
 1. **Context injection** — every AI endpoint fetches the entity's relationships and the summaries of linked entities and includes them in the prompt. DeepSeek polishes and expands with canon awareness, not generically.
-2. **AI never overwrites** — endpoints return suggestions; clients render them side-by-side (or as a diff) and the writer explicitly accepts or discards. Accepted content goes through the normal save path (which also snapshots a revision).
-3. Long generations may stream via SSE — implementation choice, not a contract.
+2. **AI never writes without explicit approval** — endpoints return suggestions and proposals, never database writes. Clients render them side-by-side, as diffs, or as change cards, and the writer explicitly applies or discards each one. Applied changes go through the normal REST save path (which also snapshots a revision). The AI itself has no write path to D1.
+3. Long generations may stream via SSE — implementation choice, not a contract. The chat endpoint always streams.
+
+#### AI Chat
+
+A conversational layer over the same proxy: discuss an entity with the AI, and when you ask it to make a change, it proposes one — it never makes one.
+
+**Stateless and ephemeral.** The client holds the conversation and sends the full message history every turn; closing the panel ends the conversation. No chat tables in D1 — the durable artifacts are the entities themselves (and their revisions), not the chatter that produced them.
+
+**Server-side tool loop.** The Worker injects the entity's context (same as the other AI endpoints), then runs DeepSeek with function calling:
+
+- **Read tools** the Worker executes freely, feeding results back to the model (capped at 8 calls per turn — bounds latency and DeepSeek spend):
+
+| Tool | Maps to |
+|------|---------|
+| `get_entity(id_or_slug)` | `GET /api/entities/:id` |
+| `search_entities(q, type?)` | `GET /api/search` |
+| `list_entities(type?, status?)` | `GET /api/entities` |
+
+- **Write tools** are never executed. The Worker intercepts the call, emits it to the client as a **proposal**, and feeds the model a synthetic result (`"proposed, pending approval"`) so it can keep narrating and propose several changes in one reply:
+
+| Tool | Proposal renders as | Apply calls |
+|------|---------------------|-------------|
+| `update_entity(id, fields)` | Diff against current content/summary/metadata | `PUT /api/entities/:id` |
+| `create_entity(type, name, …)` | Change card. Always created as `draft` — the AI doesn't get to declare canon | `POST /api/entities` |
+| `add_relationship(source, target, type, label)` | Change card | `POST /api/relationships` |
+| `remove_relationship(id)` | Change card | `DELETE /api/relationships/:id` |
+
+Deliberately **not** in the tool set: `delete_entity`, media operations, slug or status changes. Deletes are the one operation revisions can't undo; status promotion is a writer's judgment call. Relationship removal is allowed — edges carry no prose and are cheap to re-add.
+
+**Proposal object:**
+
+```json
+{
+  "id": "p_8f2k",
+  "tool": "update_entity",
+  "summary": "Rewrite Guli's backstory to reference the Bangsur fire",
+  "args": { "id": "abc123", "content": "…full replacement Markdown…" }
+}
+```
+
+`args` is the exact body for the corresponding REST call — Apply is a dumb dispatch through the normal save path (revision snapshot, era validation, all existing guards apply). The diff is rendered against the current buffer at Apply time, so an edit that landed mid-conversation is visible before committing.
+
+**SSE events:** `text` (assistant prose deltas), `reading` (read-tool activity, for a small "checking [[mira]]…" indicator), `proposal` (one complete proposal object), `done`.
+
+**History convention:** the wire format is plain `{role, content}` messages. The client flattens proposals and their outcomes into the stored assistant turn — `[Proposed p_8f2k: update Guli's content — applied]` / `…discarded]` — so the model knows on the next turn what landed and what didn't, without the Worker remembering anything.
+
+**"Apply it" in chat:** one extra write-adjacent tool, `apply_proposal(id)`. Also never executed server-side — but when the client receives it, it applies the referenced *pending* proposal immediately, because the approval just came from the writer's own message. The button and the phrase are the same path; the model is only relaying consent. Revisions are the safety net if it ever relays wrong.
+
+**Scope phasing:** with `entity_id`, the chat is anchored to one entity (Phase 3, in the editor/detail panel). Without it, the system prompt carries a vault index (names, slugs, types, statuses) and the model navigates by read tools — vault-wide chat, Phase 4.
 
 ### Timeline, Search, Portability
 
@@ -355,13 +404,14 @@ All API requests include `Authorization: Bearer <static-token>`. The Worker vali
 |-------|---------|
 | `/` | Dashboard — **quick capture box** (name + optional note → stub), stubs awaiting triage, recent entities, quick stats |
 | `/entities` | List with type tabs, status filter, search, sort |
-| `/entities/[slug]` | Detail — metadata sidebar, rendered Markdown with wikilinks, media gallery, relationships, children, mentioned-in (backlinks) |
-| `/entities/[slug]/edit` | Editor — metadata form, Markdown editor, AI buttons, relationship picker |
+| `/entities/[slug]` | Detail — metadata sidebar, rendered Markdown with wikilinks, media gallery, relationships, children, mentioned-in (backlinks), AI chat panel |
+| `/entities/[slug]/edit` | Editor — metadata form, Markdown editor, AI buttons, relationship picker, AI chat panel |
 | `/entities/new?type=character` | Create (full form) |
 | `/timeline` | Chronological feed grouped by era |
 | `/graph` | Force-directed relationship graph |
 | `/search` | Full-text across all entities |
 | `/export` | Download zip / upload zip to import |
+| `/chat` | Vault-wide AI chat (Phase 4) — converse across the whole vault, proposals link to their entities |
 
 ### Mobile (Flutter)
 
@@ -369,12 +419,13 @@ All API requests include `Authorization: Bearer <static-token>`. The Worker vali
 |--------|---------|
 | **Home** | Dashboard — **quick capture** (one tap: name + note → stub), stubs to triage, recent, stats |
 | **Entity List** | Type tabs, status filter, search |
-| **Entity Detail** | Full read: metadata cards, Markdown with wikilinks, media, relationships, children, mentioned-in (backlinks) |
-| **Entity Editor** | Form + Markdown field + AI buttons + relationship picker |
+| **Entity Detail** | Full read: metadata cards, Markdown with wikilinks, media, relationships, children, mentioned-in (backlinks), AI chat sheet |
+| **Entity Editor** | Form + Markdown field + AI buttons + relationship picker + AI chat sheet |
 | **Timeline** | Vertical feed grouped by era, tap to detail |
 | **Graph** | Interactive graph, pinch-zoom, tap to navigate |
 | **Search** | Full-text grouped by type |
 | **Export** | Generate → share sheet |
+| **Chat** | Vault-wide AI chat (Phase 4) |
 
 Quick capture is the core loop of an ideas vault: getting an idea in must be one step, not a form with a type picker. Type can default to `lore` and be corrected at triage.
 
@@ -426,6 +477,13 @@ The most-used surface in the app:
 - **Autosave**: debounced PUT after ~2s idle, plus a localStorage backup of the unsaved buffer. Losing prose is this app's worst possible failure; it must be impossible
 - The Flutter editor stays a plain text field with a wikilink-insert button — CodeMirror is web-only
 
+### AI chat panel
+
+- Collapsible right sidebar on detail and edit views — consistent with "chrome recedes"; closed by default
+- Proposals render inline in the transcript: unified diff blocks for content edits, change cards for structural ops (create entity, add/remove relationship), each with Apply / Discard
+- Applied cards lock with a status badge; discarded cards dim
+- Mobile: a bottom sheet instead of a sidebar; v1 shows a full-replace preview rather than an inline diff
+
 ---
 
 ## Build Phases
@@ -434,7 +492,8 @@ The most-used surface in the app:
 |-------|-------|
 | **1** | Worker API (entities, relationships, media, auth) + SvelteKit web with full CRUD, quick capture, detail/editor, list, search. This alone is a usable vault |
 | **2** | Flutter app: quick capture, read/browse, basic editing. Timeline on both |
-| **3** | Graph views, export/import + weekly cron backups, AI endpoints + buttons, revision history, media gallery polish |
+| **3** | Graph views, export/import + weekly cron backups, AI endpoints + buttons, per-entity AI chat (web), revision history, media gallery polish |
+| **4** | Vault-wide AI chat (web `/chat` + Flutter chat screen), per-entity chat on Flutter |
 
 "Neither platform is restricted" is the end state, not the v1 bar — building two full clients simultaneously doubles the work before anything is usable.
 
@@ -507,9 +566,12 @@ This database holds years of creative work behind one static token — it gets d
 | 12 | Backlinks computed at read time via `LIKE` | No stored rows, no index to maintain. Personal scale makes this free |
 | 13 | CodeMirror 6 editor with `[[` autocomplete and autosave | The editor is the most-used surface; losing prose must be impossible |
 | 14 | Weekly cron backup to R2 (last 8 kept) on top of D1 Time Travel | Years of creative work deserve defense in depth |
-| 15 | AI is context-aware and never overwrites | Prompts include linked entities' summaries; output is accept/discard suggestions only |
+| 15 | AI is context-aware and never writes without explicit approval | Prompts include linked entities' summaries; output is apply/discard suggestions and proposals only |
 | 16 | Eras are `lore` entities, validated on write | Free strings + one typo would silently split the timeline |
 | 17 | Slug renames rewrite wikilinks server-side, atomically | Links can never dangle; clients never do find-and-replace |
+| 18 | AI chat is stateless — client holds history, full transcript sent per turn, no chat tables in D1 | Conversations are scaffolding; entities and revisions are the durable record |
+| 19 | Tool-call split: read tools execute server-side, write tools return as proposals applied via normal REST | AI never touches D1 directly; every applied change inherits revisions and validation for free |
+| 20 | AI tool set excludes deletes, slug, and status changes; `create_entity` lands as `draft` | Deletes are the one op revisions can't undo; canon is a human call |
 
 ## Remaining (decide during implementation)
 
@@ -517,3 +579,4 @@ This database holds years of creative work behind one static token — it gets d
 |---|----------|---------|
 | 1 | Graph rendering on mobile | `CustomPainter` widget vs. WebView + D3. Prototype both, pick what performs |
 | 2 | Multi-device sync | Not in v1. Export/import covers the gap. Revisit when phone ↔ desktop real-time is needed |
+| 3 | Vault-wide chat specifics | Vault-index size vs. token budget; whether chat eventually subsumes the polish/expand buttons. Decide in Phase 4 with real usage |
