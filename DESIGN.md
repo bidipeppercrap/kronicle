@@ -1,6 +1,6 @@
 # Kronicle — Design Document
 
-> Written 2026-06-09. Updated 2026-06-10: renamed to Kronicle, design review fixes (immutable IDs, status column, auth proxy, quick capture, build phases); added Web UI Design (typography + warm editorial theme); added writing-tool features (backlinks, editor spec, backups, AI ground rules, revisions, era validation, server-side slug rename); added AI chat (per-entity tool-calling chat, approval-gated writes).
+> Written 2026-06-09. Updated 2026-06-10: renamed to Kronicle, design review fixes (immutable IDs, status column, auth proxy, quick capture, build phases); added Web UI Design (typography + warm editorial theme); added writing-tool features (backlinks, editor spec, backups, AI ground rules, revisions, era validation, server-side slug rename); added AI chat (per-entity tool-calling chat, approval-gated writes); added Mobile UI Design (Material 3 warm theme + bundled OFL fonts).
 > This is the reference for building the app.
 > When building, read this first. When the design changes, update this.
 
@@ -484,6 +484,22 @@ The most-used surface in the app:
 - Applied cards lock with a status badge; discarded cards dim
 - Mobile: a bottom sheet instead of a sidebar; v1 shows a full-replace preview rather than an inline diff
 
+### Mobile UI Design (Flutter)
+
+Same identity as web, native idiom: **Material 3, re-themed to the warm editorial palette**. Material 3 is Flutter's built-in component set — bottom sheets (AI chat), FAB (quick capture), navigation bar, search bar all come for free, with no extra design-system dependency. Cupertino or a custom design system would be the wrong bar for an Android-only personal tool.
+
+- Theme via `ColorScheme.fromSeed` with a muted-amber seed, surfaces overridden to match the web palette: cream/ivory light ("paper"), deep warm gray dark ("candlelit study" — never pure black)
+- **Dynamic color (Material You) is disabled** — the grimoire identity is fixed and shared with web; wallpaper-derived schemes would break it and the status-color semantics
+- Status colors identical to web: `stub` amber, `draft` blue-gray, `canon` green-ink, `rejected` muted red
+
+The same three fonts, **bundled as APK assets** via `pubspec.yaml` (not the `google_fonts` package — iA Writer Quattro isn't on Google Fonts, and bundling mirrors the web's self-hosted/no-Google-requests decision; sources: Google Fonts repos for Literata and Inter, [iA-Fonts on GitHub](https://github.com/iaolo/iA-Fonts) for Quattro):
+
+| Role | Font | Flutter usage |
+|------|------|---------------|
+| Prose (rendered Markdown) | **Literata** | `flutter_markdown` stylesheet body |
+| UI chrome | **Inter** | `ThemeData.textTheme` default |
+| Editor text field | **iA Writer Quattro** | editor `TextField` style |
+
 ---
 
 ## Build Phases
@@ -572,6 +588,7 @@ This database holds years of creative work behind one static token — it gets d
 | 18 | AI chat is stateless — client holds history, full transcript sent per turn, no chat tables in D1 | Conversations are scaffolding; entities and revisions are the durable record |
 | 19 | Tool-call split: read tools execute server-side, write tools return as proposals applied via normal REST | AI never touches D1 directly; every applied change inherits revisions and validation for free |
 | 20 | AI tool set excludes deletes, slug, and status changes; `create_entity` lands as `draft` | Deletes are the one op revisions can't undo; canon is a human call |
+| 21 | Flutter: Material 3 themed to the warm palette, dynamic color off; same three OFL fonts bundled as APK assets | Native component set, one shared identity across clients; Quattro isn't on Google Fonts, so assets it is |
 
 ## Remaining (decide during implementation)
 
