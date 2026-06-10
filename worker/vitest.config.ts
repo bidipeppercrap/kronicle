@@ -15,6 +15,7 @@ export default defineWorkersConfig(async () => {
             bindings: {
               TEST_MIGRATIONS: migrations,
               API_TOKEN: "test-token",
+              DEEPSEEK_API_KEY: "test-deepseek-key",
             },
           },
         },

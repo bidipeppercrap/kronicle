@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { beforeNavigate, goto } from '$app/navigation';
+	import AiChatPanel from '$lib/components/AiChatPanel.svelte';
 	import EntityPicker, { type PickedEntity } from '$lib/components/EntityPicker.svelte';
 	import MarkdownEditor from '$lib/components/MarkdownEditor.svelte';
 	import TypeIcon from '$lib/components/TypeIcon.svelte';
@@ -8,6 +9,7 @@
 	import { toast } from '$lib/toast.svelte';
 	import {
 		ENTITY_TYPES,
+		MEDIA_TYPES,
 		RELATIONSHIP_INVERSE_LABELS,
 		RELATIONSHIP_LABELS,
 		RELATIONSHIP_TYPES,
@@ -16,6 +18,8 @@
 		TYPE_LABELS,
 		type Entity,
 		type EntityType,
+		type Media,
+		type MediaType,
 		type Relationship,
 		type RelationshipType,
 		type Status
@@ -26,8 +30,10 @@
 		Check,
 		CircleAlert,
 		History,
+		ImagePlus,
 		LoaderCircle,
 		Plus,
+		Sparkles,
 		Trash2,
 		X
 	} from '@lucide/svelte';
@@ -306,6 +312,44 @@
 		};
 	}
 
+	// ——— Media ———
+	let mediaItems = $state<Media[]>([...data.entity.media]);
+	let mediaType = $state<MediaType>('portrait');
+	let uploading = $state(false);
+	let fileInput = $state<HTMLInputElement | null>(null);
+
+	async function uploadMedia(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file || uploading) return;
+		uploading = true;
+		try {
+			const form = new FormData();
+			form.append('file', file);
+			form.append('entity_id', entity.id);
+			form.append('media_type', mediaType);
+			const res = await fetch('/api/media', { method: 'POST', body: form });
+			const body = (await res.json().catch(() => null)) as (Media & { error?: string }) | null;
+			if (!res.ok || !body) throw new Error(body?.error ?? `Upload failed (${res.status})`);
+			mediaItems.push(body);
+			toast(`Uploaded ${mediaType}`);
+		} catch (err) {
+			toast(err instanceof Error ? err.message : 'Upload failed', 'err');
+		} finally {
+			uploading = false;
+			input.value = '';
+		}
+	}
+
+	async function removeMedia(id: string) {
+		const res = await fetch(`/api/media/${id}`, { method: 'DELETE' });
+		if (res.ok || res.status === 404) {
+			mediaItems = mediaItems.filter((m) => m.id !== id);
+		} else {
+			toast('Could not delete media', 'err');
+		}
+	}
+
 	// ——— Delete ———
 	let deleting = $state(false);
 
@@ -332,6 +376,28 @@
 	const suggestions = $derived(
 		METADATA_SUGGESTIONS[type].filter((k) => !metaRows.some((r) => r.key === k))
 	);
+
+	// ——— AI chat ———
+	let chatOpen = $state(false);
+	const chatCurrent = $derived({ content, summary });
+
+	/**
+	 * Applied update_entity proposals for this entity merge into the open
+	 * buffer and ride the normal autosave — a direct PUT would race it.
+	 */
+	function applyAiUpdate(fields: Record<string, unknown>) {
+		if (typeof fields.name === 'string') name = fields.name;
+		if (typeof fields.summary === 'string') summary = fields.summary;
+		if (typeof fields.content === 'string') content = fields.content;
+		if (fields.metadata && typeof fields.metadata === 'object') {
+			metaRows = Object.entries(fields.metadata as Record<string, unknown>).map(
+				([key, value]) => ({
+					key,
+					value: typeof value === 'string' ? value : JSON.stringify(value)
+				})
+			);
+		}
+	}
 </script>
 
 <svelte:head>
@@ -373,6 +439,14 @@
 				<Check class="size-3.5 text-status-canon" /> saved {timeAgo(savedAt)}
 			{/if}
 		</span>
+		<button
+			type="button"
+			onclick={() => (chatOpen = !chatOpen)}
+			class="flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-sm text-ink-muted transition-colors hover:border-accent hover:text-accent-ink"
+			aria-label="AI chat"
+		>
+			<Sparkles class="size-4" />
+		</button>
 		<button
 			type="button"
 			onclick={save}
@@ -607,6 +681,65 @@
 
 				<section>
 					<h3 class="mb-1.5 text-[0.6875rem] font-medium tracking-wider text-ink-faint uppercase">
+						Media
+					</h3>
+					{#if mediaItems.length}
+						<div class="mb-2 grid grid-cols-3 gap-2">
+							{#each mediaItems as item (item.id)}
+								<div class="group relative">
+									<img
+										src="/api/media/{item.id}/file"
+										alt={item.alt_text ?? item.media_type}
+										title={item.media_type}
+										loading="lazy"
+										class="aspect-square w-full rounded-lg border border-line-soft object-cover"
+									/>
+									<button
+										type="button"
+										onclick={() => removeMedia(item.id)}
+										class="absolute top-1 right-1 hidden rounded bg-paper/85 p-0.5 text-ink-faint transition-colors group-hover:block hover:text-status-rejected"
+										aria-label="Delete {item.media_type}"
+									>
+										<X class="size-3.5" />
+									</button>
+								</div>
+							{/each}
+						</div>
+					{/if}
+					<div class="flex items-center gap-1.5">
+						<select
+							bind:value={mediaType}
+							class="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-ink outline-none focus:border-accent"
+						>
+							{#each MEDIA_TYPES as mt (mt)}
+								<option value={mt}>{mt}</option>
+							{/each}
+						</select>
+						<button
+							type="button"
+							onclick={() => fileInput?.click()}
+							disabled={uploading}
+							class="flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent-ink disabled:opacity-50"
+						>
+							{#if uploading}
+								<LoaderCircle class="size-3.5 animate-spin" />
+							{:else}
+								<ImagePlus class="size-3.5" />
+							{/if}
+							Upload
+						</button>
+						<input
+							type="file"
+							accept="image/*"
+							hidden
+							bind:this={fileInput}
+							onchange={uploadMedia}
+						/>
+					</div>
+				</section>
+
+				<section>
+					<h3 class="mb-1.5 text-[0.6875rem] font-medium tracking-wider text-ink-faint uppercase">
 						Slug
 					</h3>
 					<div class="flex items-center gap-1.5">
@@ -679,3 +812,10 @@
 		</aside>
 	</div>
 </div>
+
+<AiChatPanel
+	entity={{ id: entity.id, name: entity.name }}
+	current={chatCurrent}
+	bind:open={chatOpen}
+	onLocalUpdate={applyAiUpdate}
+/>

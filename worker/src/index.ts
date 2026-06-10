@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { bearerAuth } from "hono/bearer-auth";
 import { HTTPException } from "hono/http-exception";
+import aiRoutes from "./routes/ai";
 import entitiesRoutes from "./routes/entities";
 import mediaRoutes from "./routes/media";
 import relationshipsRoutes from "./routes/relationships";
@@ -18,6 +19,7 @@ app.route("/api", entitiesRoutes);
 app.route("/api", relationshipsRoutes);
 app.route("/api", mediaRoutes);
 app.route("/api", searchRoutes);
+app.route("/api", aiRoutes);
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));
 

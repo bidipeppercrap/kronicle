@@ -18,5 +18,5 @@
       "bucket_name": "kronicle-media"
     }
   ]
-  // Secrets (wrangler secret put / .dev.vars locally): API_TOKEN
+  // Secrets (wrangler secret put / .dev.vars locally): API_TOKEN, DEEPSEEK_API_KEY
 }

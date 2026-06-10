@@ -57,6 +57,9 @@ export interface Relationship {
 	created_at: string;
 }
 
+export const MEDIA_TYPES = ['portrait', 'illustration', 'reference', 'logo'] as const;
+export type MediaType = (typeof MEDIA_TYPES)[number];
+
 export interface Media {
 	id: string;
 	entity_id: string;

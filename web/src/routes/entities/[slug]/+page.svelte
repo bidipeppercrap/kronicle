@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import AiChatPanel from '$lib/components/AiChatPanel.svelte';
 	import EntityRow from '$lib/components/EntityRow.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import TypeIcon from '$lib/components/TypeIcon.svelte';
@@ -14,12 +15,19 @@
 		TYPE_LABELS,
 		type Relationship
 	} from '$lib/types';
-	import { ChevronRight, PanelRightClose, PanelRightOpen, PenLine } from '@lucide/svelte';
+	import {
+		ChevronRight,
+		PanelRightClose,
+		PanelRightOpen,
+		PenLine,
+		Sparkles
+	} from '@lucide/svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
 	let sidebarOpen = $state(true);
+	let chatOpen = $state(false);
 
 	const entity = $derived(data.entity);
 	const metaEntries = $derived(
@@ -69,6 +77,13 @@
 					>
 						<PenLine class="size-3.5" /> Edit
 					</a>
+					<button
+						type="button"
+						onclick={() => (chatOpen = !chatOpen)}
+						class="flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent-ink"
+					>
+						<Sparkles class="size-3.5" /> Chat
+					</button>
 					<button
 						type="button"
 						class="hidden rounded-lg p-1.5 text-ink-faint transition-colors hover:bg-surface hover:text-ink lg:block"
@@ -263,3 +278,9 @@
 		</aside>
 	{/if}
 </div>
+
+<AiChatPanel
+	entity={{ id: entity.id, name: entity.name }}
+	current={{ content: entity.content, summary: entity.summary }}
+	bind:open={chatOpen}
+/>

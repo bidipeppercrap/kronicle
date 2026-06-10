@@ -9,10 +9,13 @@ import type { RequestHandler } from './$types';
 const proxy: RequestHandler = async ({ params, url, request, fetch }) => {
 	const target = `/${params.path}${url.search}`;
 	const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
+	// Forward the body as raw bytes with its original Content-Type —
+	// multipart uploads (media) carry a boundary and binary payloads.
+	const contentType = request.headers.get('Content-Type');
 	const res = await apiFetch(fetch, target, {
 		method: request.method,
-		headers: hasBody ? { 'Content-Type': 'application/json' } : undefined,
-		body: hasBody ? await request.text() : undefined
+		headers: hasBody && contentType ? { 'Content-Type': contentType } : undefined,
+		body: hasBody ? await request.arrayBuffer() : undefined
 	});
 	return new Response(res.body, {
 		status: res.status,

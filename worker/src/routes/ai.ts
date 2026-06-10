@@ -1,0 +1,579 @@
+import { and, desc, eq, inArray, like, or } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
+import type { DrizzleD1Database } from "drizzle-orm/d1";
+import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
+import { streamSSE } from "hono/streaming";
+import type { SSEStreamingApi } from "hono/streaming";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+import {
+  ENTITY_TYPES,
+  RELATIONSHIP_TYPES,
+  STATUSES,
+  entities,
+  relationships,
+} from "../db/schema";
+import type { ChatMessage, ToolDefinition } from "../lib/deepseek";
+import { streamCompletion } from "../lib/deepseek";
+import { resolveEntity, requireEntity, type EntityRow } from "../lib/resolve";
+import { serialize } from "../lib/util";
+import { parseJson } from "../lib/validate";
+import type { Bindings } from "../types";
+
+const app = new Hono<{ Bindings: Bindings }>();
+
+/** Read tools per turn — bounds latency and DeepSeek spend (DESIGN.md). */
+const READ_BUDGET = 8;
+/** Model→tool round-trips per turn — a hard stop against runaway loops. */
+const MAX_ROUNDS = 10;
+
+const chatSchema = z.object({
+  entity_id: z.string().optional(),
+  messages: z
+    .array(
+      z.object({
+        role: z.enum(["user", "assistant"]),
+        content: z.string(),
+      })
+    )
+    .min(1),
+});
+
+// ——— Tool definitions (OpenAI function-calling format) ———
+
+const typeEnum = [...ENTITY_TYPES];
+const statusEnum = [...STATUSES];
+
+const TOOLS: ToolDefinition[] = [
+  {
+    type: "function",
+    function: {
+      name: "get_entity",
+      description:
+        "Fetch one entity by id or slug: full prose content, metadata, and its relationships.",
+      parameters: {
+        type: "object",
+        properties: { id_or_slug: { type: "string" } },
+        required: ["id_or_slug"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_entities",
+      description:
+        "Search the vault by text across entity names, summaries, and content.",
+      parameters: {
+        type: "object",
+        properties: {
+          q: { type: "string" },
+          type: { type: "string", enum: typeEnum },
+        },
+        required: ["q"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_entities",
+      description: "List entities, optionally filtered by type and status.",
+      parameters: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: typeEnum },
+          status: { type: "string", enum: statusEnum },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_entity",
+      description:
+        "Propose changes to an entity's name, summary, content, or metadata. The writer sees a diff and applies or discards it — nothing is changed until they approve. Slug and status cannot be changed.",
+      parameters: {
+        type: "object",
+        properties: {
+          id_or_slug: { type: "string" },
+          change_summary: {
+            type: "string",
+            description: "One line describing the change, shown on the proposal card.",
+          },
+          name: { type: "string" },
+          summary: { type: "string" },
+          content: {
+            type: "string",
+            description: "Full replacement Markdown — not a fragment.",
+          },
+          metadata: { type: "object" },
+        },
+        required: ["id_or_slug", "change_summary"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_entity",
+      description:
+        "Propose a new entity. It is always created as a draft — the writer promotes to canon. Requires their approval before anything is created.",
+      parameters: {
+        type: "object",
+        properties: {
+          change_summary: { type: "string" },
+          type: { type: "string", enum: typeEnum },
+          name: { type: "string" },
+          summary: { type: "string" },
+          content: { type: "string" },
+          metadata: { type: "object" },
+          parent_id: {
+            type: "string",
+            description: "id or slug of the parent entity, for nesting",
+          },
+        },
+        required: ["change_summary", "type", "name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "add_relationship",
+      description:
+        "Propose a relationship between two entities. Requires writer approval.",
+      parameters: {
+        type: "object",
+        properties: {
+          change_summary: { type: "string" },
+          source: { type: "string", description: "id or slug of the source entity" },
+          target: { type: "string", description: "id or slug of the target entity" },
+          type: { type: "string", enum: [...RELATIONSHIP_TYPES] },
+          label: { type: "string" },
+        },
+        required: ["change_summary", "source", "target", "type"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "remove_relationship",
+      description:
+        "Propose removing a relationship by its id. Requires writer approval.",
+      parameters: {
+        type: "object",
+        properties: {
+          change_summary: { type: "string" },
+          relationship_id: { type: "string" },
+        },
+        required: ["change_summary", "relationship_id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "apply_proposal",
+      description:
+        "Apply a pending proposal from this conversation, only when the writer's latest message explicitly asks for it (e.g. \"apply it\"). The id is the proposal id, like p_abc123.",
+      parameters: {
+        type: "object",
+        properties: { proposal_id: { type: "string" } },
+        required: ["proposal_id"],
+      },
+    },
+  },
+];
+
+// ——— Tool argument schemas ———
+
+const metadataSchema = z.record(z.unknown());
+const getEntityArgs = z.object({ id_or_slug: z.string() });
+const searchArgs = z.object({
+  q: z.string().min(1),
+  type: z.enum(ENTITY_TYPES).optional(),
+});
+const listArgs = z.object({
+  type: z.enum(ENTITY_TYPES).optional(),
+  status: z.enum(STATUSES).optional(),
+});
+const updateArgs = z
+  .object({
+    id_or_slug: z.string(),
+    change_summary: z.string().min(1),
+    name: z.string().min(1).optional(),
+    summary: z.string().optional(),
+    content: z.string().optional(),
+    metadata: metadataSchema.optional(),
+  })
+  .refine(
+    (a) =>
+      a.name !== undefined ||
+      a.summary !== undefined ||
+      a.content !== undefined ||
+      a.metadata !== undefined,
+    { message: "at least one of name/summary/content/metadata is required" }
+  );
+const createArgs = z.object({
+  change_summary: z.string().min(1),
+  type: z.enum(ENTITY_TYPES),
+  name: z.string().min(1),
+  summary: z.string().optional(),
+  content: z.string().optional(),
+  metadata: metadataSchema.optional(),
+  parent_id: z.string().optional(),
+});
+const addRelArgs = z.object({
+  change_summary: z.string().min(1),
+  source: z.string(),
+  target: z.string(),
+  type: z.enum(RELATIONSHIP_TYPES),
+  label: z.string().optional(),
+});
+const removeRelArgs = z.object({
+  change_summary: z.string().min(1),
+  relationship_id: z.string(),
+});
+const applyArgs = z.object({ proposal_id: z.string() });
+
+// ——— Context injection ———
+
+/** Compact reference shape fed to the model for lists and search results. */
+function brief(e: EntityRow) {
+  return {
+    id: e.id,
+    slug: e.slug,
+    name: e.name,
+    type: e.type,
+    status: e.status,
+    summary: e.summary,
+  };
+}
+
+async function relationshipLines(
+  db: DrizzleD1Database,
+  entity: EntityRow
+): Promise<string[]> {
+  const rels = await db
+    .select()
+    .from(relationships)
+    .where(
+      or(
+        eq(relationships.source_id, entity.id),
+        eq(relationships.target_id, entity.id)
+      )
+    )
+    .all();
+  if (!rels.length) return [];
+
+  const counterpartIds = [
+    ...new Set(
+      rels.map((r) => (r.source_id === entity.id ? r.target_id : r.source_id))
+    ),
+  ];
+  const rows = await db
+    .select()
+    .from(entities)
+    .where(inArray(entities.id, counterpartIds))
+    .all();
+  const refs = new Map(rows.map((r) => [r.id, r]));
+
+  return rels.map((r) => {
+    const outgoing = r.source_id === entity.id;
+    const other = refs.get(outgoing ? r.target_id : r.source_id);
+    const who = other
+      ? `${other.name} [[${other.slug}]] (${other.type}, ${other.status})`
+      : "?";
+    const verb = outgoing ? `this —${r.type}→ ${who}` : `${who} —${r.type}→ this`;
+    const label = r.label ? ` "${r.label}"` : "";
+    const summary = other?.summary ? ` — ${other.summary}` : "";
+    return `- [${r.id}] ${verb}${label}${summary}`;
+  });
+}
+
+async function buildSystemPrompt(
+  db: DrizzleD1Database,
+  entity: EntityRow
+): Promise<string> {
+  const relLines = await relationshipLines(db, entity);
+  return `You are the writing assistant inside Kronicle, a personal storybuilding vault. You are discussing one entity with its writer.
+
+Rules:
+- Read the vault freely with get_entity, search_entities, and list_entities.
+- You cannot change anything yourself. update_entity, create_entity, add_relationship, and remove_relationship only create PROPOSALS — the writer sees each one with Apply/Discard buttons. Never claim a change has been made; say it is proposed and awaiting approval.
+- Earlier proposals appear in the transcript as "[Proposed p_xxx: … — applied/discarded/pending]". Only call apply_proposal when the writer's latest message explicitly asks to apply a pending one.
+- update_entity content must be the full replacement Markdown, not a fragment.
+- Prose references other entities as [[slug]] wikilinks (or [[slug|display text]]). Keep existing wikilinks intact unless the change is about them.
+- New entities always land as drafts; promoting to canon is the writer's call.
+- Match the writer's tone and the vault's voice; be concrete and brief in chat.
+
+The entity under discussion:
+
+name: ${entity.name}
+slug: ${entity.slug}
+id: ${entity.id}
+type: ${entity.type}
+status: ${entity.status}
+summary: ${entity.summary || "(none)"}
+metadata: ${entity.metadata}
+
+relationships:
+${relLines.length ? relLines.join("\n") : "(none)"}
+
+content (Markdown):
+${entity.content || "(blank — nothing written yet)"}`;
+}
+
+// ——— Tool execution ———
+
+interface TurnState {
+  readCalls: number;
+  proposals: number;
+}
+
+async function runReadTool(
+  db: DrizzleD1Database,
+  name: string,
+  args: unknown
+): Promise<string> {
+  if (name === "get_entity") {
+    const a = getEntityArgs.parse(args);
+    const entity = await resolveEntity(db, a.id_or_slug);
+    if (!entity) return `No entity found for "${a.id_or_slug}".`;
+    const relLines = await relationshipLines(db, entity);
+    return JSON.stringify({
+      ...serialize(entity),
+      relationships: relLines,
+    });
+  }
+  if (name === "search_entities") {
+    const a = searchArgs.parse(args);
+    const pattern = `%${a.q}%`;
+    const conds = [
+      or(
+        like(entities.name, pattern),
+        like(entities.summary, pattern),
+        like(entities.content, pattern)
+      ),
+    ];
+    if (a.type) conds.push(eq(entities.type, a.type));
+    const rows = await db
+      .select()
+      .from(entities)
+      .where(and(...conds))
+      .limit(20)
+      .all();
+    return JSON.stringify(rows.map(brief));
+  }
+  // list_entities
+  const a = listArgs.parse(args);
+  const conds = [];
+  if (a.type) conds.push(eq(entities.type, a.type));
+  if (a.status) conds.push(eq(entities.status, a.status));
+  const rows = await db
+    .select()
+    .from(entities)
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(desc(entities.updated_at))
+    .limit(20)
+    .all();
+  return JSON.stringify(rows.map(brief));
+}
+
+/**
+ * Build the proposal for a write tool. `args` on the wire is the exact body
+ * for the REST call the client makes on Apply (DESIGN.md) — every existing
+ * guard (era validation, revision snapshot) applies there, not here.
+ */
+async function buildProposal(
+  db: DrizzleD1Database,
+  name: string,
+  rawArgs: unknown
+): Promise<{ summary: string; args: Record<string, unknown> }> {
+  if (name === "update_entity") {
+    const a = updateArgs.parse(rawArgs);
+    const target = await resolveEntity(db, a.id_or_slug);
+    if (!target) throw new Error(`No entity found for "${a.id_or_slug}"`);
+    const { id_or_slug, change_summary, ...fields } = a;
+    return { summary: change_summary, args: { id: target.id, ...fields } };
+  }
+  if (name === "create_entity") {
+    const a = createArgs.parse(rawArgs);
+    const { change_summary, parent_id, ...fields } = a;
+    const args: Record<string, unknown> = { ...fields, status: "draft" };
+    if (parent_id) {
+      const parent = await resolveEntity(db, parent_id);
+      if (!parent) throw new Error(`No parent entity found for "${parent_id}"`);
+      args.parent_id = parent.id;
+    }
+    return { summary: change_summary, args };
+  }
+  if (name === "add_relationship") {
+    const a = addRelArgs.parse(rawArgs);
+    const source = await resolveEntity(db, a.source);
+    if (!source) throw new Error(`No entity found for "${a.source}"`);
+    const target = await resolveEntity(db, a.target);
+    if (!target) throw new Error(`No entity found for "${a.target}"`);
+    return {
+      summary: a.change_summary,
+      args: {
+        source_id: source.id,
+        target_id: target.id,
+        type: a.type,
+        label: a.label ?? null,
+      },
+    };
+  }
+  // remove_relationship
+  const a = removeRelArgs.parse(rawArgs);
+  return { summary: a.change_summary, args: { id: a.relationship_id } };
+}
+
+const READ_TOOLS = new Set(["get_entity", "search_entities", "list_entities"]);
+const WRITE_TOOLS = new Set([
+  "update_entity",
+  "create_entity",
+  "add_relationship",
+  "remove_relationship",
+]);
+
+async function runTool(
+  db: DrizzleD1Database,
+  stream: SSEStreamingApi,
+  state: TurnState,
+  name: string,
+  rawArguments: string
+): Promise<string> {
+  let args: unknown;
+  try {
+    args = rawArguments.trim() ? JSON.parse(rawArguments) : {};
+  } catch {
+    return `Error: arguments for ${name} were not valid JSON.`;
+  }
+
+  try {
+    if (READ_TOOLS.has(name)) {
+      if (state.readCalls >= READ_BUDGET) {
+        return `Read budget exhausted (${READ_BUDGET} calls this turn). Answer with what you already have.`;
+      }
+      state.readCalls++;
+      const detail =
+        typeof args === "object" && args !== null
+          ? Object.values(args as Record<string, unknown>).join(" ")
+          : "";
+      await stream.writeSSE({
+        event: "reading",
+        data: JSON.stringify({ tool: name, detail }),
+      });
+      return await runReadTool(db, name, args);
+    }
+
+    if (WRITE_TOOLS.has(name)) {
+      const { summary, args: restArgs } = await buildProposal(db, name, args);
+      const proposal = { id: `p_${nanoid(8)}`, tool: name, summary, args: restArgs };
+      state.proposals++;
+      await stream.writeSSE({
+        event: "proposal",
+        data: JSON.stringify(proposal),
+      });
+      return `Proposal ${proposal.id} created (${name}): ${summary}. Status: pending — the writer has not applied it. Do not describe it as done.`;
+    }
+
+    if (name === "apply_proposal") {
+      const a = applyArgs.parse(args);
+      await stream.writeSSE({
+        event: "proposal",
+        data: JSON.stringify({
+          id: `p_${nanoid(8)}`,
+          tool: "apply_proposal",
+          summary: `Apply ${a.proposal_id}`,
+          args: { id: a.proposal_id },
+        }),
+      });
+      return `Relayed — the client is applying ${a.proposal_id} now on the writer's instruction.`;
+    }
+
+    return `Error: unknown tool "${name}".`;
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      const detail = err.issues.map((i) => i.message).join("; ");
+      return `Error: invalid arguments for ${name}: ${detail}`;
+    }
+    return `Error: ${err instanceof Error ? err.message : "tool failed"}`;
+  }
+}
+
+// ——— Route ———
+
+app.post("/ai/chat", async (c) => {
+  if (!c.env.DEEPSEEK_API_KEY) {
+    throw new HTTPException(500, { message: "DEEPSEEK_API_KEY is not configured" });
+  }
+  const body = await parseJson(c, chatSchema);
+  if (!body.entity_id) {
+    throw new HTTPException(400, {
+      message: "entity_id is required — vault-wide chat lands in Phase 4",
+    });
+  }
+
+  const db = drizzle(c.env.DB);
+  const entity = await requireEntity(db, body.entity_id);
+  const system = await buildSystemPrompt(db, entity);
+  const messages: ChatMessage[] = [
+    { role: "system", content: system },
+    ...body.messages,
+  ];
+
+  return streamSSE(c, async (stream) => {
+    const state: TurnState = { readCalls: 0, proposals: 0 };
+    try {
+      for (let round = 0; round < MAX_ROUNDS; round++) {
+        const result = await streamCompletion({
+          apiKey: c.env.DEEPSEEK_API_KEY,
+          baseUrl: c.env.DEEPSEEK_API_URL,
+          model: c.env.DEEPSEEK_MODEL,
+          messages,
+          tools: TOOLS,
+          onText: (delta) =>
+            stream.writeSSE({ event: "text", data: JSON.stringify({ delta }) }),
+        });
+        if (!result.toolCalls.length) break;
+
+        messages.push({
+          role: "assistant",
+          content: result.content || null,
+          tool_calls: result.toolCalls,
+        });
+        for (const call of result.toolCalls) {
+          const outcome = await runTool(
+            db,
+            stream,
+            state,
+            call.function.name,
+            call.function.arguments
+          );
+          messages.push({
+            role: "tool",
+            content: outcome,
+            tool_call_id: call.id,
+          });
+        }
+      }
+      await stream.writeSSE({ event: "done", data: "{}" });
+    } catch (err) {
+      console.error(err);
+      await stream.writeSSE({
+        event: "error",
+        data: JSON.stringify({
+          message: err instanceof Error ? err.message : "AI chat failed",
+        }),
+      });
+    }
+  });
+});
+
+export default app;
