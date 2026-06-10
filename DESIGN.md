@@ -1,6 +1,6 @@
 # Kronicle — Design Document
 
-> Written 2026-06-09. Updated 2026-06-10: renamed to Kronicle, design review fixes (immutable IDs, status column, auth proxy, quick capture, build phases); added Web UI Design (typography + warm editorial theme).
+> Written 2026-06-09. Updated 2026-06-10: renamed to Kronicle, design review fixes (immutable IDs, status column, auth proxy, quick capture, build phases); added Web UI Design (typography + warm editorial theme); added writing-tool features (backlinks, editor spec, backups, AI ground rules, revisions, era validation, server-side slug rename).
 > This is the reference for building the app.
 > When building, read this first. When the design changes, update this.
 
@@ -127,6 +127,17 @@ Unique index on `(source_id, target_id, type)` — prevents duplicate edges.
 
 Media files are served through the Worker (`GET /api/media/:id/file` streams from R2) — the bucket stays private, auth applies. Deleting a media row (or its owning entity) also deletes the R2 object, so storage never leaks.
 
+#### entity_revisions (Phase 3)
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | TEXT PK | UUID |
+| `entity_id` | TEXT FK → entities.id | Entity this snapshot belongs to |
+| `content` | TEXT | The Markdown prose as it was before the save |
+| `created_at` | TEXT | ISO timestamp |
+
+Snapshot taken on every content-changing save; keep the last 20 per entity. Insurance against bad rewrites and overeager AI accepts. Server-only — excluded from sync and export.
+
 ---
 
 ### Status system — the core loop
@@ -194,7 +205,11 @@ Type-specific fields live in `metadata`. Adding a field is a UI change, not a mi
 
 ### Linking convention — wikilinks
 
-Mentions in Markdown `content` use `[[slug]]` (optionally `[[slug|display text]]`). Both clients render these as links to the entity detail view. Wikilinks are **render-only** — they do not create relationship rows; explicit relationships stay in the `relationships` table. Because links use the `slug` (not the immutable `id`), renaming a slug requires a find-and-replace across content — the editor should offer this when a slug changes.
+Mentions in Markdown `content` use `[[slug]]` (optionally `[[slug|display text]]`). Both clients render these as links to the entity detail view. Wikilinks are **render-only** — they do not create relationship rows; explicit relationships stay in the `relationships` table.
+
+**Backlinks ("Mentioned in"):** every entity detail view shows the reverse lookup — all entities whose `content` contains `[[this-slug]]`. Computed at read time (`LIKE '%[[slug%'` — fine at personal scale), no rows stored. This is how forgotten connections resurface.
+
+**Slug renames are server-side and atomic:** when a `PUT /api/entities/:id` changes the `slug`, the Worker rewrites `[[old-slug]]` and `[[old-slug|...]]` across all entities' `content` in the same D1 batch as the rename. Clients never do this themselves — links can't dangle.
 
 ---
 
@@ -233,6 +248,8 @@ Relationships: `occurs_at` (location), `involves` (character), `causes` (event �
 
 The Timeline view renders all `canon` events sorted by `metadata.order_index`, grouped by `era`.
 
+**Eras are entities, not free strings.** Each era is a `lore` entity with `metadata.category: "era"`. An event's or lore entry's `metadata.era` must match an existing era entity's slug — the API validates this on write. One typo would otherwise silently split the timeline grouping.
+
 ---
 
 ## Tech Stack
@@ -240,13 +257,14 @@ The Timeline view renders all `canon` events sorted by `metadata.order_index`, g
 | Layer | Choice | Rationale |
 |-------|--------|-----------|
 | **Database** | Cloudflare D1 (SQLite at edge) | Free: 5 GB, 5M reads/day. Single source of truth for both clients |
-| **Backend API** | Cloudflare Workers + Hono | Routing, validation, CORS middleware. Free: 100K requests/day |
+| **Backend API** | Cloudflare Workers + Hono | Routing, validation, CORS middleware. Cron trigger for weekly backups. Free: 100K requests/day |
 | **Web frontend** | SvelteKit → Cloudflare Workers (static assets) | Your existing stack. Cloudflare now steers new projects to Workers rather than Pages. Desktop-first editing experience |
 | **Mobile app** | Flutter (Android) | Your existing stack. Phone-first reading experience |
 | **ORM (Worker)** | Drizzle | Already used in `bidipeppercrap-api` |
 | **HTTP (Flutter)** | `dio` | Interceptors for caching, retry, auth token injection |
 | **State (Flutter)** | Riverpod | Modern. Swap if your projects use Provider/BLoC/GetX |
 | **UI components (web)** | shadcn-svelte + Tailwind CSS | Accessible prebuilt components (dialogs, command palette, comboboxes), restyled to the warm theme |
+| **Editor (web)** | CodeMirror 6 | Markdown mode, `[[` wikilink autocomplete, the standard for in-browser editing |
 | **Fonts** | Literata / Inter / iA Writer Quattro | All SIL OFL, self-hosted via Fontsource. See Web UI Design |
 | **Markdown (Flutter)** | `flutter_markdown` | Renders prose with custom link handling (wikilinks) |
 | **AI** | Same Worker (`/api/ai/*`) → DeepSeek | One proxy, both clients share it |
@@ -282,6 +300,7 @@ DELETE /api/entities/:id                    → removes relationships, media row
 
 ```
 GET    /api/entities/:id/relationships      → all relationships for this entity (both directions)
+GET    /api/entities/:id/backlinks          → entities whose content mentions [[this-slug]]
 POST   /api/relationships                   → { source_id, target_id, type, label, metadata }
 DELETE /api/relationships/:id
 ```
@@ -302,6 +321,12 @@ POST   /api/ai/polish                       → { content, notes, entity_type, m
 POST   /api/ai/expand                       → { summary, entity_type, metadata }
 POST   /api/ai/suggest-relationships        → { entity_id } → candidate targets + relationship types
 ```
+
+**Ground rules:**
+
+1. **Context injection** — every AI endpoint fetches the entity's relationships and the summaries of linked entities and includes them in the prompt. DeepSeek polishes and expands with canon awareness, not generically.
+2. **AI never overwrites** — endpoints return suggestions; clients render them side-by-side (or as a diff) and the writer explicitly accepts or discards. Accepted content goes through the normal save path (which also snapshots a revision).
+3. Long generations may stream via SSE — implementation choice, not a contract.
 
 ### Timeline, Search, Portability
 
@@ -330,7 +355,7 @@ All API requests include `Authorization: Bearer <static-token>`. The Worker vali
 |-------|---------|
 | `/` | Dashboard — **quick capture box** (name + optional note → stub), stubs awaiting triage, recent entities, quick stats |
 | `/entities` | List with type tabs, status filter, search, sort |
-| `/entities/[slug]` | Detail — metadata sidebar, rendered Markdown with wikilinks, media gallery, relationships, children |
+| `/entities/[slug]` | Detail — metadata sidebar, rendered Markdown with wikilinks, media gallery, relationships, children, mentioned-in (backlinks) |
 | `/entities/[slug]/edit` | Editor — metadata form, Markdown editor, AI buttons, relationship picker |
 | `/entities/new?type=character` | Create (full form) |
 | `/timeline` | Chronological feed grouped by era |
@@ -344,7 +369,7 @@ All API requests include `Authorization: Bearer <static-token>`. The Worker vali
 |--------|---------|
 | **Home** | Dashboard — **quick capture** (one tap: name + note → stub), stubs to triage, recent, stats |
 | **Entity List** | Type tabs, status filter, search |
-| **Entity Detail** | Full read: metadata cards, Markdown with wikilinks, media, relationships, children |
+| **Entity Detail** | Full read: metadata cards, Markdown with wikilinks, media, relationships, children, mentioned-in (backlinks) |
 | **Entity Editor** | Form + Markdown field + AI buttons + relationship picker |
 | **Timeline** | Vertical feed grouped by era, tap to detail |
 | **Graph** | Interactive graph, pinch-zoom, tap to navigate |
@@ -392,6 +417,15 @@ Status colors, used consistently in badges, list rows, and the dashboard: `stub`
 
 **shadcn-svelte** (Bits UI underneath) + **Tailwind CSS**, restyled to the warm palette via CSS variables. Provides the dialogs, comboboxes (relationship picker), and the ⌘K command palette (quick capture + jump-to-entity) without building accessibility from scratch.
 
+### Editor
+
+The most-used surface in the app:
+
+- **CodeMirror 6** with Markdown mode, set in iA Writer Quattro
+- Typing `[[` opens entity autocomplete (searches names and slugs, inserts `[[slug]]`) — without this, wikilinks would mean memorizing slugs
+- **Autosave**: debounced PUT after ~2s idle, plus a localStorage backup of the unsaved buffer. Losing prose is this app's worst possible failure; it must be impossible
+- The Flutter editor stays a plain text field with a wikilink-insert button — CodeMirror is web-only
+
 ---
 
 ## Build Phases
@@ -400,7 +434,7 @@ Status colors, used consistently in badges, list rows, and the dashboard: `stub`
 |-------|-------|
 | **1** | Worker API (entities, relationships, media, auth) + SvelteKit web with full CRUD, quick capture, detail/editor, list, search. This alone is a usable vault |
 | **2** | Flutter app: quick capture, read/browse, basic editing. Timeline on both |
-| **3** | Graph views, export/import, AI endpoints + buttons, media gallery polish |
+| **3** | Graph views, export/import + weekly cron backups, AI endpoints + buttons, revision history, media gallery polish |
 
 "Neither platform is restricted" is the end state, not the v1 bar — building two full clients simultaneously doubles the work before anything is usable.
 
@@ -446,6 +480,13 @@ Available from both web (download) and Flutter (share sheet).
 
 **Format:** zip containing one Markdown file per entity (YAML frontmatter + prose) + `kronicle.json` manifest + all media files. Lossless round-trip — `POST /api/import` restores the zip into a fresh D1 + R2 instance.
 
+### Automated backups
+
+This database holds years of creative work behind one static token — it gets defense in depth:
+
+1. **D1 Time Travel** — built-in 30-day point-in-time restore, zero setup. First line of defense.
+2. **Weekly cron backup** — a Worker cron trigger runs the same export logic and writes the zip to R2 at `backups/kronicle-YYYY-MM-DD.zip`, keeping the last 8. Survives anything short of losing the Cloudflare account; restorable anywhere via `POST /api/import`.
+
 ---
 
 ## Resolved Decisions
@@ -463,6 +504,12 @@ Available from both web (download) and Flutter (share sheet).
 | 9 | Web token stays in SvelteKit server routes | Never shipped to the browser |
 | 10 | Typography: Literata (prose) + Inter (UI) + iA Writer Quattro (editor) | Reading-first app — the fonts are the UI. All OFL, self-hosted via Fontsource |
 | 11 | Warm editorial design language on shadcn-svelte + Tailwind | Writerly "digital grimoire" feel with accessible prebuilt components underneath |
+| 12 | Backlinks computed at read time via `LIKE` | No stored rows, no index to maintain. Personal scale makes this free |
+| 13 | CodeMirror 6 editor with `[[` autocomplete and autosave | The editor is the most-used surface; losing prose must be impossible |
+| 14 | Weekly cron backup to R2 (last 8 kept) on top of D1 Time Travel | Years of creative work deserve defense in depth |
+| 15 | AI is context-aware and never overwrites | Prompts include linked entities' summaries; output is accept/discard suggestions only |
+| 16 | Eras are `lore` entities, validated on write | Free strings + one typo would silently split the timeline |
+| 17 | Slug renames rewrite wikilinks server-side, atomically | Links can never dangle; clients never do find-and-replace |
 
 ## Remaining (decide during implementation)
 
