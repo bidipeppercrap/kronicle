@@ -1,0 +1,394 @@
+/* Kronicle — warm editorial theme ("digital grimoire").
+   Light: paper. Dark: candlelit study. Typography is the UI. */
+
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/literata/opsz.css';
+@import '@fontsource-variable/literata/opsz-italic.css';
+@import '@fontsource/ia-writer-quattro/400.css';
+@import '@fontsource/ia-writer-quattro/400-italic.css';
+@import '@fontsource/ia-writer-quattro/700.css';
+@import '@fontsource/jetbrains-mono/400.css';
+
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+	/* paper */
+	--paper: oklch(0.967 0.014 90);
+	--surface: oklch(0.985 0.009 95);
+	--inset: oklch(0.945 0.016 88);
+	--line: oklch(0.885 0.022 85);
+	--line-soft: oklch(0.92 0.018 88);
+	--ink: oklch(0.265 0.018 70);
+	--ink-muted: oklch(0.49 0.025 75);
+	--ink-faint: oklch(0.62 0.025 80);
+	--accent: oklch(0.585 0.115 70);
+	--accent-ink: oklch(0.47 0.1 65);
+	--accent-soft: oklch(0.93 0.035 85);
+	--status-stub: oklch(0.66 0.13 75);
+	--status-draft: oklch(0.55 0.045 245);
+	--status-canon: oklch(0.5 0.085 155);
+	--status-rejected: oklch(0.55 0.1 25);
+	--shadow-tint: 40 32 18;
+}
+
+.dark {
+	/* candlelit study — deep warm gray, never pure black */
+	--paper: oklch(0.235 0.012 65);
+	--surface: oklch(0.275 0.013 68);
+	--inset: oklch(0.205 0.011 65);
+	--line: oklch(0.36 0.018 70);
+	--line-soft: oklch(0.315 0.015 68);
+	--ink: oklch(0.91 0.02 85);
+	--ink-muted: oklch(0.72 0.025 80);
+	--ink-faint: oklch(0.58 0.022 75);
+	--accent: oklch(0.76 0.115 75);
+	--accent-ink: oklch(0.8 0.12 78);
+	--accent-soft: oklch(0.33 0.04 75);
+	--status-stub: oklch(0.76 0.13 78);
+	--status-draft: oklch(0.7 0.05 245);
+	--status-canon: oklch(0.68 0.09 155);
+	--status-rejected: oklch(0.66 0.1 25);
+	--shadow-tint: 0 0 0;
+}
+
+@theme inline {
+	--color-paper: var(--paper);
+	--color-surface: var(--surface);
+	--color-inset: var(--inset);
+	--color-line: var(--line);
+	--color-line-soft: var(--line-soft);
+	--color-ink: var(--ink);
+	--color-ink-muted: var(--ink-muted);
+	--color-ink-faint: var(--ink-faint);
+	--color-accent: var(--accent);
+	--color-accent-ink: var(--accent-ink);
+	--color-accent-soft: var(--accent-soft);
+	--color-status-stub: var(--status-stub);
+	--color-status-draft: var(--status-draft);
+	--color-status-canon: var(--status-canon);
+	--color-status-rejected: var(--status-rejected);
+
+	--font-ui: 'Inter Variable', system-ui, sans-serif;
+	--font-prose: 'Literata Variable', Georgia, 'Times New Roman', serif;
+	--font-editor: 'iA Writer Quattro', 'JetBrains Mono', ui-monospace, monospace;
+	--font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+@layer base {
+	html {
+		font-family: var(--font-ui);
+		background-color: var(--paper);
+		color: var(--ink);
+		accent-color: var(--accent);
+		scrollbar-color: color-mix(in oklch, var(--ink-faint) 55%, transparent) transparent;
+	}
+
+	body {
+		min-height: 100dvh;
+	}
+
+	::selection {
+		background: color-mix(in oklch, var(--accent) 28%, transparent);
+	}
+
+	:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
+	}
+}
+
+/* ————— Rendered Markdown prose: the "book page" ————— */
+
+@utility prose-book {
+	font-family: var(--font-prose);
+	font-optical-sizing: auto;
+	font-size: 1.0625rem;
+	line-height: 1.7;
+	max-width: 68ch;
+	color: var(--ink);
+	overflow-wrap: break-word;
+
+	& > * + * {
+		margin-top: 1em;
+	}
+
+	& h1,
+	& h2,
+	& h3,
+	& h4 {
+		font-weight: 600;
+		line-height: 1.25;
+		letter-spacing: -0.01em;
+		margin-top: 1.8em;
+		margin-bottom: 0.5em;
+		text-wrap: balance;
+	}
+
+	& h1 {
+		font-size: 1.7em;
+	}
+	& h2 {
+		font-size: 1.4em;
+	}
+	& h3 {
+		font-size: 1.18em;
+	}
+	& h4 {
+		font-size: 1.02em;
+	}
+
+	& p {
+		text-wrap: pretty;
+	}
+
+	& a {
+		color: var(--accent-ink);
+		text-decoration: underline;
+		text-decoration-color: color-mix(in oklch, var(--accent) 45%, transparent);
+		text-underline-offset: 3px;
+		transition: text-decoration-color 120ms ease;
+	}
+
+	& a:hover {
+		text-decoration-color: var(--accent);
+	}
+
+	& a.wikilink {
+		text-decoration-style: dotted;
+		font-style: normal;
+	}
+
+	& a.wikilink-broken {
+		color: var(--status-rejected);
+		text-decoration-color: color-mix(in oklch, var(--status-rejected) 45%, transparent);
+		text-decoration-style: dotted;
+		cursor: help;
+	}
+
+	& strong {
+		font-weight: 700;
+	}
+
+	& blockquote {
+		border-inline-start: 2px solid var(--accent);
+		padding-inline-start: 1.25em;
+		font-style: italic;
+		color: var(--ink-muted);
+	}
+
+	& ul,
+	& ol {
+		padding-inline-start: 1.5em;
+	}
+	& ul {
+		list-style: disc;
+	}
+	& ol {
+		list-style: decimal;
+	}
+	& li + li {
+		margin-top: 0.35em;
+	}
+	& li::marker {
+		color: var(--ink-faint);
+	}
+
+	& code {
+		font-family: var(--font-mono);
+		font-size: 0.85em;
+		background: var(--inset);
+		border-radius: 4px;
+		padding: 0.12em 0.35em;
+	}
+
+	& pre {
+		background: var(--inset);
+		border: 1px solid var(--line-soft);
+		border-radius: 8px;
+		padding: 1em 1.25em;
+		overflow-x: auto;
+	}
+
+	& pre code {
+		background: none;
+		padding: 0;
+		font-size: 0.85em;
+	}
+
+	& hr {
+		border: 0;
+		text-align: center;
+		margin-block: 2.5em;
+	}
+
+	/* section break ornament instead of a rule — book idiom */
+	& hr::after {
+		content: '✳ ✳ ✳';
+		letter-spacing: 1.2em;
+		padding-inline-start: 1.2em; /* recenter: letter-spacing trails the last glyph */
+		color: var(--ink-faint);
+		font-size: 0.7em;
+	}
+
+	& img {
+		border-radius: 8px;
+		max-width: 100%;
+	}
+
+	& table {
+		font-family: var(--font-ui);
+		font-size: 0.875em;
+		width: 100%;
+		border-collapse: collapse;
+	}
+
+	& th,
+	& td {
+		border-bottom: 1px solid var(--line-soft);
+		padding: 0.5em 0.75em;
+		text-align: left;
+	}
+
+	& th {
+		font-weight: 600;
+		color: var(--ink-muted);
+	}
+}
+
+/* ————— CodeMirror editor: the manuscript ————— */
+
+.cm-editor {
+	font-family: var(--font-editor);
+	font-size: 1rem;
+	background: transparent;
+	height: 100%;
+}
+
+.cm-editor.cm-focused {
+	outline: none;
+}
+
+.cm-editor .cm-scroller {
+	font-family: var(--font-editor);
+	line-height: 1.75;
+	padding-block: 1.5rem;
+}
+
+.cm-editor .cm-content {
+	max-width: 72ch;
+	margin-inline: auto;
+	padding-inline: 1.5rem;
+	caret-color: var(--accent);
+}
+
+.cm-editor .cm-line {
+	padding-inline: 0;
+}
+
+.cm-editor .cm-cursor {
+	border-left-color: var(--accent);
+	border-left-width: 2px;
+}
+
+.cm-editor .cm-selectionBackground,
+.cm-editor.cm-focused .cm-selectionBackground {
+	background: color-mix(in oklch, var(--accent) 22%, transparent) !important;
+}
+
+.cm-editor .cm-activeLine {
+	background: color-mix(in oklch, var(--accent) 5%, transparent);
+}
+
+.cm-editor .cm-tooltip {
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	box-shadow: 0 8px 24px rgb(var(--shadow-tint) / 0.18);
+	overflow: hidden;
+	font-family: var(--font-ui);
+}
+
+.cm-editor .cm-tooltip.cm-tooltip-autocomplete > ul {
+	font-family: var(--font-ui);
+	font-size: 0.8125rem;
+	max-height: 16rem;
+}
+
+.cm-editor .cm-tooltip.cm-tooltip-autocomplete > ul > li {
+	padding: 0.4rem 0.75rem;
+	color: var(--ink);
+}
+
+.cm-editor .cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
+	background: var(--accent-soft);
+	color: var(--ink);
+}
+
+.cm-editor .cm-completionDetail {
+	color: var(--ink-faint);
+	font-style: normal;
+	margin-inline-start: 0.75em;
+	font-size: 0.75rem;
+}
+
+.cm-editor .cm-completionMatchedText {
+	text-decoration: none;
+	color: var(--accent-ink);
+	font-weight: 600;
+}
+
+/* markdown syntax tints inside the editor */
+.cm-editor .tok-heading {
+	font-weight: 700;
+	color: var(--ink);
+}
+.cm-editor .tok-emphasis {
+	font-style: italic;
+}
+.cm-editor .tok-strong {
+	font-weight: 700;
+}
+.cm-editor .tok-link,
+.cm-editor .tok-url {
+	color: var(--accent-ink);
+}
+.cm-editor .tok-quote {
+	color: var(--ink-muted);
+	font-style: italic;
+}
+.cm-editor .tok-monospace {
+	font-family: var(--font-mono);
+	font-size: 0.9em;
+}
+.cm-editor .tok-meta,
+.cm-editor .tok-processingInstruction {
+	color: var(--ink-faint);
+}
+
+/* ————— Micro-interactions ————— */
+
+@keyframes rise-in {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+@utility animate-rise {
+	animation: rise-in 200ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
+}

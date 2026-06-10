@@ -1,6 +1,6 @@
 # Kronicle — Design Document
 
-> Written 2026-06-09. Updated 2026-06-10: renamed to Kronicle, design review fixes (immutable IDs, status column, auth proxy, quick capture, build phases); added Web UI Design (typography + warm editorial theme); added writing-tool features (backlinks, editor spec, backups, AI ground rules, revisions, era validation, server-side slug rename); added AI chat (per-entity tool-calling chat, approval-gated writes); added Mobile UI Design (Material 3 warm theme + bundled OFL fonts); added Cloudflare Access in front of the web app + implementation defaults (monorepo layout, server-side slug generation, partial PUT, list envelope, revision endpoints).
+> Written 2026-06-09. Updated 2026-06-10: renamed to Kronicle, design review fixes (immutable IDs, status column, auth proxy, quick capture, build phases); added Web UI Design (typography + warm editorial theme); added writing-tool features (backlinks, editor spec, backups, AI ground rules, revisions, era validation, server-side slug rename); added AI chat (per-entity tool-calling chat, approval-gated writes); added Mobile UI Design (Material 3 warm theme + bundled OFL fonts); added Cloudflare Access in front of the web app + implementation defaults (monorepo layout, server-side slug generation, partial PUT, list envelope, revision endpoints); built the Phase 1 web app (`web/`) — component layer is Bits UI directly + hand-styled Tailwind rather than shadcn-svelte (decision 27).
 > This is the reference for building the app.
 > When building, read this first. When the design changes, update this.
 
@@ -263,7 +263,7 @@ The Timeline view renders all `canon` events sorted by `metadata.order_index`, g
 | **ORM (Worker)** | Drizzle | Already used in `bidipeppercrap-api` |
 | **HTTP (Flutter)** | `dio` | Interceptors for caching, retry, auth token injection |
 | **State (Flutter)** | Riverpod | Modern. Swap if your projects use Provider/BLoC/GetX |
-| **UI components (web)** | shadcn-svelte + Tailwind CSS | Accessible prebuilt components (dialogs, command palette, comboboxes), restyled to the warm theme |
+| **UI components (web)** | Bits UI + Tailwind CSS | Accessible headless primitives (dialogs, command palette), styled directly to the warm theme. shadcn-svelte is just copy-pasted Bits UI — going direct skips the indirection (decision 27) |
 | **Editor (web)** | CodeMirror 6 | Markdown mode, `[[` wikilink autocomplete, the standard for in-browser editing |
 | **Fonts** | Literata / Inter / iA Writer Quattro | All SIL OFL, self-hosted via Fontsource. See Web UI Design |
 | **Markdown (Flutter)** | `flutter_markdown` | Renders prose with custom link handling (wikilinks) |
@@ -477,7 +477,7 @@ Status colors, used consistently in badges, list rows, and the dashboard: `stub`
 
 ### Component layer
 
-**shadcn-svelte** (Bits UI underneath) + **Tailwind CSS**, restyled to the warm palette via CSS variables. Provides the dialogs, comboboxes (relationship picker), and the ⌘K command palette (quick capture + jump-to-entity) without building accessibility from scratch.
+**Bits UI** (the headless layer shadcn-svelte wraps) + **Tailwind CSS**, styled to the warm palette via CSS variables. Provides the dialogs and the ⌘K command palette (quick capture + jump-to-entity) without building accessibility from scratch. The entity picker (relationships, parent) is a small hand-rolled async combobox — server-driven search didn't fit the static-list combobox primitive.
 
 ### Editor
 
@@ -605,6 +605,7 @@ This database holds years of creative work behind one static token — it gets d
 | 24 | Slugs are generated server-side: slugify the name (lowercase alphanumeric + hyphens), suffix `-2`, `-3`… on collision | Quick capture stays `{ name }` only; clients never invent slugs |
 | 25 | `PUT /api/entities/:id` is a partial update | Clients edit one field at a time; `metadata` is replaced wholly when provided |
 | 26 | Paginated list endpoints return `{ items, total, limit, offset }` | Dashboard stats need `total` without a second endpoint |
+| 27 | Web components: Bits UI used directly, no shadcn-svelte layer | shadcn-svelte is copy-pasted Bits UI wrappers; every component gets restyled to the warm theme anyway, so the wrapper layer added indirection without value. Async pickers are hand-rolled |
 
 ## Remaining (decide during implementation)
 
