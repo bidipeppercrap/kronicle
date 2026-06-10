@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kronicle-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-06",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "kronicle",
+      // TODO: replace after `wrangler d1 create kronicle` — local dev/tests don't need the real id
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "kronicle-media"
+    }
+  ]
+  // Secrets (wrangler secret put / .dev.vars locally): API_TOKEN
+}

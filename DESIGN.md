@@ -1,6 +1,6 @@
 # Kronicle — Design Document
 
-> Written 2026-06-09. Updated 2026-06-10: renamed to Kronicle, design review fixes (immutable IDs, status column, auth proxy, quick capture, build phases); added Web UI Design (typography + warm editorial theme); added writing-tool features (backlinks, editor spec, backups, AI ground rules, revisions, era validation, server-side slug rename); added AI chat (per-entity tool-calling chat, approval-gated writes); added Mobile UI Design (Material 3 warm theme + bundled OFL fonts).
+> Written 2026-06-09. Updated 2026-06-10: renamed to Kronicle, design review fixes (immutable IDs, status column, auth proxy, quick capture, build phases); added Web UI Design (typography + warm editorial theme); added writing-tool features (backlinks, editor spec, backups, AI ground rules, revisions, era validation, server-side slug rename); added AI chat (per-entity tool-calling chat, approval-gated writes); added Mobile UI Design (Material 3 warm theme + bundled OFL fonts); added Cloudflare Access in front of the web app + implementation defaults (monorepo layout, server-side slug generation, partial PUT, list envelope, revision endpoints).
 > This is the reference for building the app.
 > When building, read this first. When the design changes, update this.
 
@@ -314,6 +314,15 @@ POST   /api/media                           → multipart upload → R2
 DELETE /api/media/:id                       → deletes row + R2 object
 ```
 
+### Revisions (Phase 3)
+
+```
+GET    /api/entities/:id/revisions          → last 20 content snapshots, newest first
+POST   /api/entities/:id/revisions/:revId/restore
+                                            → restores through the normal save path,
+                                              so the current content is snapshotted first
+```
+
 ### AI
 
 ```
@@ -393,6 +402,8 @@ Search is `LIKE '%q%'` over name/summary/content for v1 — fine at personal sca
 All API requests include `Authorization: Bearer <static-token>`. The Worker validates it. No user accounts.
 
 **The token must never reach the browser.** The SvelteKit app calls the Worker exclusively from its server routes (`+page.server.ts` / `+server.ts`), where the token lives in an environment variable. Shipping it in client-side JS on a public URL would hand out full write access plus the DeepSeek proxy (your API credits). The Flutter APK does embed the token — accepted risk for a personal device.
+
+**The web app itself sits behind Cloudflare Access** (Zero Trust free tier, email allowlist). The token-proxy keeps the secret out of the browser, but on its own it would attach that token for *any* visitor to the public URL — Access keeps strangers out of the proxy. Zero application code; configured on the SvelteKit Worker's route when the web app deploys.
 
 ---
 
@@ -589,6 +600,11 @@ This database holds years of creative work behind one static token — it gets d
 | 19 | Tool-call split: read tools execute server-side, write tools return as proposals applied via normal REST | AI never touches D1 directly; every applied change inherits revisions and validation for free |
 | 20 | AI tool set excludes deletes, slug, and status changes; `create_entity` lands as `draft` | Deletes are the one op revisions can't undo; canon is a human call |
 | 21 | Flutter: Material 3 themed to the warm palette, dynamic color off; same three OFL fonts bundled as APK assets | Native component set, one shared identity across clients; Quattro isn't on Google Fonts, so assets it is |
+| 22 | Cloudflare Access in front of the SvelteKit web app | The server-route proxy alone would attach the token for any visitor — full write access on a public URL. Access (free tier, email allowlist) closes that with zero code |
+| 23 | Monorepo: `worker/` + `web/` (later `app/` for Flutter) | Two deployments, one design doc, one history |
+| 24 | Slugs are generated server-side: slugify the name (lowercase alphanumeric + hyphens), suffix `-2`, `-3`… on collision | Quick capture stays `{ name }` only; clients never invent slugs |
+| 25 | `PUT /api/entities/:id` is a partial update | Clients edit one field at a time; `metadata` is replaced wholly when provided |
+| 26 | Paginated list endpoints return `{ items, total, limit, offset }` | Dashboard stats need `total` without a second endpoint |
 
 ## Remaining (decide during implementation)
 
