@@ -8,11 +8,13 @@ import {
   ENTITY_TYPES,
   STATUSES,
   entities,
+  entityRevisions,
   media,
   relationships,
 } from "../db/schema";
 import { validateEra } from "../lib/era";
 import { requireEntity } from "../lib/resolve";
+import { snapshotRevision } from "../lib/revisions";
 import { SLUG_PATTERN, slugify, uniqueSlug } from "../lib/slug";
 import { now, serialize } from "../lib/util";
 import { parseJson, parseQuery } from "../lib/validate";
@@ -248,6 +250,12 @@ app.put("/entities/:id", async (c) => {
       .replaceAll(old.aliased, next.aliased);
   }
 
+  // The prose safety net: a content-changing save snapshots what it replaces.
+  // Mechanical wikilink rewrites from slug renames don't count as prose edits.
+  if (body.content !== undefined && body.content !== current.content) {
+    await snapshotRevision(db, current.id, current.content);
+  }
+
   const values = {
     name: body.name ?? current.name,
     type,
@@ -272,6 +280,51 @@ app.put("/entities/:id", async (c) => {
   return c.json(
     serialize({ id: current.id, created_at: current.created_at, ...values })
   );
+});
+
+app.get("/entities/:id/revisions", async (c) => {
+  const db = drizzle(c.env.DB);
+  const entity = await requireEntity(db, c.req.param("id"));
+
+  const items = await db
+    .select()
+    .from(entityRevisions)
+    .where(eq(entityRevisions.entity_id, entity.id))
+    .orderBy(desc(entityRevisions.created_at))
+    .limit(20)
+    .all();
+
+  return c.json({ items });
+});
+
+app.post("/entities/:id/revisions/:revId/restore", async (c) => {
+  const db = drizzle(c.env.DB);
+  const entity = await requireEntity(db, c.req.param("id"));
+
+  const revision = await db
+    .select()
+    .from(entityRevisions)
+    .where(
+      and(
+        eq(entityRevisions.id, c.req.param("revId")),
+        eq(entityRevisions.entity_id, entity.id)
+      )
+    )
+    .get();
+  if (!revision) {
+    throw new HTTPException(404, { message: "Revision not found" });
+  }
+
+  // The restore itself must be undoable: snapshot what it overwrites,
+  // bypassing the coalescing window.
+  if (revision.content !== entity.content) {
+    await snapshotRevision(db, entity.id, entity.content, { force: true });
+  }
+
+  const values = { content: revision.content, updated_at: now() };
+  await db.update(entities).set(values).where(eq(entities.id, entity.id)).run();
+
+  return c.json(serialize({ ...entity, ...values }));
 });
 
 app.delete("/entities/:id", async (c) => {
@@ -308,6 +361,7 @@ app.delete("/entities/:id", async (c) => {
         )
       ),
     db.delete(media).where(eq(media.entity_id, entity.id)),
+    db.delete(entityRevisions).where(eq(entityRevisions.entity_id, entity.id)),
     db.delete(entities).where(eq(entities.id, entity.id)),
   ]);
 

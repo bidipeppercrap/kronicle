@@ -3,6 +3,7 @@
 	import AiChatPanel from '$lib/components/AiChatPanel.svelte';
 	import EntityPicker, { type PickedEntity } from '$lib/components/EntityPicker.svelte';
 	import MarkdownEditor from '$lib/components/MarkdownEditor.svelte';
+	import RevisionHistory from '$lib/components/RevisionHistory.svelte';
 	import TypeIcon from '$lib/components/TypeIcon.svelte';
 	import { METADATA_SUGGESTIONS, STATUS_DOT } from '$lib/entityMeta';
 	import { timeAgo, wordCount } from '$lib/format';
@@ -79,6 +80,16 @@
 			await tick();
 			editor?.focus();
 		}
+	}
+
+	// A restored revision arrives already saved server-side — sync the buffer
+	// and the save machinery so autosave doesn't immediately re-PUT it.
+	function handleRestored(updated: Entity) {
+		content = updated.content;
+		lastSaved = currentSnapshot();
+		savedAt = updated.updated_at;
+		saveState = 'saved';
+		localStorage.removeItem(backupKey);
 	}
 
 	// ——— Save machinery ———
@@ -817,6 +828,8 @@
 						Renaming rewrites every [[{entity.slug}]] across the vault — links never dangle.
 					</p>
 				</section>
+
+				<RevisionHistory entityId={entity.id} onrestored={handleRestored} />
 
 				<section class="border-t border-line-soft pt-4">
 					<AlertDialog.Root>

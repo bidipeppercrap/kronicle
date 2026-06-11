@@ -84,6 +84,22 @@ export const relationships = sqliteTable(
   ]
 );
 
+export const entityRevisions = sqliteTable(
+  "entity_revisions",
+  {
+    id: text().primaryKey(),
+    entity_id: text()
+      .notNull()
+      .references(() => entities.id),
+    // The Markdown prose as it was *before* the save that triggered the snapshot.
+    content: text().notNull(),
+    created_at: text().notNull(),
+  },
+  (t) => [
+    index("idx_revisions_entity_created").on(t.entity_id, t.created_at),
+  ]
+);
+
 export const media = sqliteTable("media", {
   id: text().primaryKey(),
   entity_id: text()

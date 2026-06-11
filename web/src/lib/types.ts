@@ -69,6 +69,13 @@ export interface Media {
 	created_at: string;
 }
 
+export interface Revision {
+	id: string;
+	entity_id: string;
+	content: string;
+	created_at: string;
+}
+
 export interface EntityDetail extends Entity {
 	relationships: Relationship[];
 	media: Media[];
