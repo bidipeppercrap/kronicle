@@ -49,6 +49,29 @@ export const METADATA_SUGGESTIONS: Record<EntityType, string[]> = {
 	ability: ['principle', 'category', 'range']
 };
 
+/**
+ * Markdown skeletons pre-filled when an entity is created through the full
+ * form (and offered in the editor when the page is still blank). Headings
+ * prompt what to write; delete what doesn't apply. Chapters get none —
+ * they're prose, not sheets. Quick capture never sees these: stubs stay bare.
+ */
+export const CONTENT_TEMPLATES: Record<EntityType, string> = {
+	character: ['## Appearance', '## Personality', '## Backstory', '## Abilities & Principle']
+		.join('\n\n\n')
+		.concat('\n'),
+	location: ['## Geography', '## Notable Places', '## Residents & Factions', '## History']
+		.join('\n\n\n')
+		.concat('\n'),
+	faction: ['## Purpose', '## Members', '## Holdings', '## History'].join('\n\n\n').concat('\n'),
+	lore: ['## Overview', '## Workings', '## History'].join('\n\n\n').concat('\n'),
+	story: ['## Premise', '## Arc', '## Open Threads'].join('\n\n\n').concat('\n'),
+	chapter: '',
+	event: ['## What Happened', '## Who Was Involved', '## Consequences']
+		.join('\n\n\n')
+		.concat('\n'),
+	ability: ['## Mechanics', '## Origin', '## Limitations'].join('\n\n\n').concat('\n')
+};
+
 export const STATUS_DOT: Record<Status, string> = {
 	stub: 'bg-status-stub',
 	draft: 'bg-status-draft',

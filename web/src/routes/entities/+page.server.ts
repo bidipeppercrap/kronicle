@@ -15,6 +15,7 @@ export const load: PageServerLoad = async ({ fetch, url }) => {
 	const typeParam = url.searchParams.get('type');
 	const statusParam = url.searchParams.get('status');
 	const search = url.searchParams.get('q')?.trim() ?? '';
+	const tag = url.searchParams.get('tag')?.trim() ?? '';
 	const pageParam = Number(url.searchParams.get('page') ?? '1');
 
 	const type = ENTITY_TYPES.includes(typeParam as EntityType) ? (typeParam as EntityType) : null;
@@ -28,6 +29,7 @@ export const load: PageServerLoad = async ({ fetch, url }) => {
 	if (type) params.set('type', type);
 	if (status) params.set('status', status);
 	if (search) params.set('search', search);
+	if (tag) params.set('tag', tag);
 
 	const list = await apiGet<ListResponse<Entity>>(fetch, `/entities?${params}`);
 
@@ -36,6 +38,6 @@ export const load: PageServerLoad = async ({ fetch, url }) => {
 		total: list.total,
 		page,
 		pageSize: PAGE_SIZE,
-		filters: { type, status, search }
+		filters: { type, status, search, tag }
 	};
 };

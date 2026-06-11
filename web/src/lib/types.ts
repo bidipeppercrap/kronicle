@@ -19,6 +19,9 @@ export const RELATIONSHIP_TYPES = [
 	'possesses',
 	'friend_of',
 	'rival_of',
+	'parent_of',
+	'sibling_of',
+	'married_to',
 	'related_to',
 	'appears_in',
 	'setting_of',
@@ -90,6 +93,23 @@ export interface Backlink {
 	summary: string;
 }
 
+/** Entity reference rows in the vault-health report (GET /api/diagnostics). */
+export interface DiagnosticRef {
+	id: string;
+	slug: string;
+	type: EntityType;
+	name: string;
+	status: Status;
+	summary: string;
+	updated_at: string;
+}
+
+export interface Diagnostics {
+	broken_links: Array<DiagnosticRef & { missing_slug: string; count: number }>;
+	orphans: DiagnosticRef[];
+	stale_stubs: DiagnosticRef[];
+}
+
 export interface ListResponse<T> {
 	items: T[];
 	total: number;
@@ -106,6 +126,9 @@ export const RELATIONSHIP_LABELS: Record<RelationshipType, string> = {
 	possesses: 'possesses',
 	friend_of: 'friend of',
 	rival_of: 'rival of',
+	parent_of: 'parent of',
+	sibling_of: 'sibling of',
+	married_to: 'married to',
 	related_to: 'related to',
 	appears_in: 'appears in',
 	setting_of: 'setting of',
@@ -125,6 +148,9 @@ export const RELATIONSHIP_INVERSE_LABELS: Record<RelationshipType, string> = {
 	possesses: 'wielded by',
 	friend_of: 'friend of',
 	rival_of: 'rival of',
+	parent_of: 'child of',
+	sibling_of: 'sibling of',
+	married_to: 'married to',
 	related_to: 'related to',
 	appears_in: 'features',
 	setting_of: 'set in',

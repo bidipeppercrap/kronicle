@@ -1,4 +1,4 @@
-import { and, count, desc, eq, like, ne, or } from "drizzle-orm";
+import { and, count, desc, eq, like, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -22,7 +22,28 @@ import type { Bindings } from "../types";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-const metadataSchema = z.record(z.unknown());
+// metadata is freeform, except tags: a flat array of non-empty strings,
+// trimmed and deduped so the ?tag= filter matches exactly.
+const metadataSchema = z
+  .record(z.unknown())
+  .superRefine((m, ctx) => {
+    if (m.tags === undefined) return;
+    if (
+      !Array.isArray(m.tags) ||
+      m.tags.some((t) => typeof t !== "string" || !t.trim())
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["tags"],
+        message: "tags must be an array of non-empty strings",
+      });
+    }
+  })
+  .transform((m) =>
+    Array.isArray(m.tags)
+      ? { ...m, tags: [...new Set(m.tags.map((t) => String(t).trim()))] }
+      : m
+  );
 
 const createSchema = z.object({
   name: z.string().trim().min(1),
@@ -52,6 +73,7 @@ const listQuerySchema = z.object({
   type: z.enum(ENTITY_TYPES).optional(),
   status: z.enum(STATUSES).optional(),
   parent_id: z.string().optional(),
+  tag: z.string().trim().min(1).optional(),
   search: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
@@ -69,6 +91,13 @@ app.get("/entities", async (c) => {
   if (q.type) conds.push(eq(entities.type, q.type));
   if (q.status) conds.push(eq(entities.status, q.status));
   if (q.parent_id) conds.push(eq(entities.parent_id, q.parent_id));
+  if (q.tag) {
+    // Exact match against the metadata.tags array — json_each yields no
+    // rows when the entity has no tags, so untagged entities just drop out.
+    conds.push(
+      sql`exists (select 1 from json_each(${entities.metadata}, '$.tags') where json_each.value = ${q.tag})`
+    );
+  }
   if (q.search) {
     const pattern = `%${q.search}%`;
     conds.push(

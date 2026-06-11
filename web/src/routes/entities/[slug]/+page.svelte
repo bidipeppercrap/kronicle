@@ -31,7 +31,14 @@
 
 	const entity = $derived(data.entity);
 	const metaEntries = $derived(
-		Object.entries(entity.metadata).filter(([, v]) => v !== null && v !== '' && v !== undefined)
+		Object.entries(entity.metadata).filter(
+			([k, v]) => k !== 'tags' && v !== null && v !== '' && v !== undefined
+		)
+	);
+	const tags = $derived(
+		Array.isArray(entity.metadata.tags)
+			? entity.metadata.tags.filter((t): t is string => typeof t === 'string')
+			: []
 	);
 
 	function relParts(rel: Relationship) {
@@ -199,6 +206,24 @@
 								</div>
 							{/each}
 						</dl>
+					</section>
+				{/if}
+
+				{#if tags.length}
+					<section>
+						<h3 class="mb-2 text-[0.6875rem] font-medium tracking-wider text-ink-faint uppercase">
+							Tags
+						</h3>
+						<div class="flex flex-wrap gap-1.5">
+							{#each tags as tag (tag)}
+								<a
+									href="/entities?tag={encodeURIComponent(tag)}"
+									class="rounded-full border border-line bg-surface px-2.5 py-0.5 text-xs text-ink-muted transition-colors hover:border-accent hover:text-accent-ink"
+								>
+									{tag}
+								</a>
+							{/each}
+						</div>
 					</section>
 				{/if}
 

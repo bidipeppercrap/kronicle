@@ -7,6 +7,7 @@
 		CirclePlus,
 		Command as CommandIcon,
 		Feather,
+		HeartPulse,
 		LayoutDashboard,
 		Library,
 		Moon,
@@ -33,7 +34,8 @@
 	const nav = [
 		{ label: 'Dashboard', href: '/', icon: LayoutDashboard },
 		{ label: 'Entities', href: '/entities', icon: Library },
-		{ label: 'Search', href: '/search', icon: Search }
+		{ label: 'Search', href: '/search', icon: Search },
+		{ label: 'Health', href: '/health', icon: HeartPulse }
 	];
 
 	function isActive(href: string): boolean {

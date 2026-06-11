@@ -1,6 +1,6 @@
 # Kronicle — Design Document
 
-> Written 2026-06-09. Updated 2026-06-10: renamed to Kronicle, design review fixes (immutable IDs, status column, auth proxy, quick capture, build phases); added Web UI Design (typography + warm editorial theme); added writing-tool features (backlinks, editor spec, backups, AI ground rules, revisions, era validation, server-side slug rename); added AI chat (per-entity tool-calling chat, approval-gated writes); added Mobile UI Design (Material 3 warm theme + bundled OFL fonts); added Cloudflare Access in front of the web app + implementation defaults (monorepo layout, server-side slug generation, partial PUT, list envelope, revision endpoints); built the Phase 1 web app (`web/`) — component layer is Bits UI directly + hand-styled Tailwind rather than shadcn-svelte (decision 27); built per-entity AI chat from Phase 3 — Worker `POST /api/ai/chat` (DeepSeek tool loop, SSE, read tools capped at 8/turn, write tools intercepted as proposals) + web `AiChatPanel` on detail/edit views (diff and change-card proposals with Apply/Discard; in the editor, applied edits merge into the open buffer and ride autosave). Updated 2026-06-11: considered and rejected an app-level login (first-run root user + TOTP QR) — Cloudflare Access stays the sole web gate; added its setup runbook to the Auth section. Editor gains a Write/Peek toggle (Ctrl+E) that swaps the editing surface with rendered Markdown in place — a side-by-side preview pane was rejected for screen cost. Built revision history from Phase 3: `entity_revisions` table, snapshots coalesced to a 10-minute window, list/restore endpoints, History section in the editor sidebar.
+> Written 2026-06-09. Updated 2026-06-10: renamed to Kronicle, design review fixes (immutable IDs, status column, auth proxy, quick capture, build phases); added Web UI Design (typography + warm editorial theme); added writing-tool features (backlinks, editor spec, backups, AI ground rules, revisions, era validation, server-side slug rename); added AI chat (per-entity tool-calling chat, approval-gated writes); added Mobile UI Design (Material 3 warm theme + bundled OFL fonts); added Cloudflare Access in front of the web app + implementation defaults (monorepo layout, server-side slug generation, partial PUT, list envelope, revision endpoints); built the Phase 1 web app (`web/`) — component layer is Bits UI directly + hand-styled Tailwind rather than shadcn-svelte (decision 27); built per-entity AI chat from Phase 3 — Worker `POST /api/ai/chat` (DeepSeek tool loop, SSE, read tools capped at 8/turn, write tools intercepted as proposals) + web `AiChatPanel` on detail/edit views (diff and change-card proposals with Apply/Discard; in the editor, applied edits merge into the open buffer and ride autosave). Updated 2026-06-11: considered and rejected an app-level login (first-run root user + TOTP QR) — Cloudflare Access stays the sole web gate; added its setup runbook to the Auth section. Editor gains a Write/Peek toggle (Ctrl+E) that swaps the editing surface with rendered Markdown in place — a side-by-side preview pane was rejected for screen cost. Built revision history from Phase 3: `entity_revisions` table, snapshots coalesced to a 10-minute window, list/restore endpoints, History section in the editor sidebar. Added free-form tags (`metadata.tags` + `?tag=` filter + chips in editor/detail/list), per-type content templates (full create form + blank-editor affordance; stubs stay bare), family relationship types (`parent_of`, `sibling_of`, `married_to`), and a vault-health report (`GET /api/diagnostics` + web `/health`: broken wikilinks, orphans, stale stubs — computed at read time like backlinks).
 > This is the reference for building the app.
 > When building, read this first. When the design changes, update this.
 
@@ -105,6 +105,9 @@ Unique index on `(source_id, target_id, type)` — prevents duplicate edges.
 | `possesses` | character → ability | Character wields this ability |
 | `friend_of` | character → character | Friendship |
 | `rival_of` | character → character | Rivalry / enmity |
+| `parent_of` | character → character | Parent (reads "child of" from the target side) |
+| `sibling_of` | character → character | Siblings |
+| `married_to` | character → character | Spouses |
 | `related_to` | any → any | Generic connection (catch-all) |
 | `appears_in` | character → chapter | Character appears in this chapter |
 | `setting_of` | location → chapter | Chapter takes place here |
@@ -199,6 +202,13 @@ Type-specific fields live in `metadata`. Adding a field is a UI change, not a mi
 { "principle": "destruction", "category": "palm-based", "range": "contact" }
 ```
 
+**Tags (any type):**
+```json
+{ "tags": ["villain", "book-2", "fire-motif"] }
+```
+
+Free-form labels — the fourth filter axis next to type, status, and era, and the only one that cuts across types ("everything in the book-2 arc" is neither a type nor a status). Trimmed and deduped on write; `GET /api/entities?tag=` filters by exact match via SQLite's `json_each` — no tag table, no management screen. A tag exists because some entity carries it.
+
 **Ordering convention:** `order` (chapters) and `order_index` (events) use sparse integers in steps of 100 (100, 200, 300…). Inserting between two items takes the midpoint — no renumbering.
 
 ---
@@ -286,7 +296,7 @@ The Worker serves a REST API. Both clients consume the same endpoints.
 ### Entities
 
 ```
-GET    /api/entities?type=character&status=canon&search=guli&limit=50&offset=0
+GET    /api/entities?type=character&status=canon&tag=villain&search=guli&limit=50&offset=0
 GET    /api/entities/:id                    → entity + relationships + media
 POST   /api/entities                        → create (quick capture: just { name } → stub)
 PUT    /api/entities/:id                    → update
@@ -391,6 +401,9 @@ Deliberately **not** in the tool set: `delete_entity`, media operations, slug or
 ```
 GET    /api/timeline?era=age-of-conflict&status=canon
 GET    /api/search?q=guli&type=character
+GET    /api/diagnostics                     → vault health: broken [[wikilinks]], orphaned
+                                              entities, stubs past the 14-day triage window.
+                                              Computed at read time, nothing stored
 GET    /api/export                          → zip of Markdown files + kronicle.json
 POST   /api/import                          → zip upload, restores into D1 + R2 (the round-trip half of export)
 ```
@@ -426,10 +439,11 @@ All API requests include `Authorization: Bearer <static-token>`. The Worker vali
 | `/entities` | List with type tabs, status filter, search, sort |
 | `/entities/[slug]` | Detail — metadata sidebar, rendered Markdown with wikilinks, media gallery, relationships, children, mentioned-in (backlinks), AI chat panel |
 | `/entities/[slug]/edit` | Editor — metadata form, Markdown editor, AI buttons, relationship picker, AI chat panel |
-| `/entities/new?type=character` | Create (full form) |
+| `/entities/new?type=character` | Create (full form) — content pre-filled from the type's heading template (stubs stay bare) |
 | `/timeline` | Chronological feed grouped by era |
 | `/graph` | Force-directed relationship graph |
 | `/search` | Full-text across all entities |
+| `/health` | Vault health — broken wikilinks, orphans, stale stubs; the dashboard links here when the report is non-empty |
 | `/export` | Download zip / upload zip to import |
 | `/chat` | Vault-wide AI chat (Phase 4) — converse across the whole vault, proposals link to their entities |
 
@@ -496,6 +510,8 @@ The most-used surface in the app:
 - Typing `[[` opens entity autocomplete (searches names and slugs, inserts `[[slug]]`) — without this, wikilinks would mean memorizing slugs
 - **Autosave**: debounced PUT after ~2s idle, plus a localStorage backup of the unsaved buffer. Losing prose is this app's worst possible failure; it must be impossible
 - **Write/Peek toggle** (toolbar button or Ctrl+E): swaps the editing surface in place with rendered Markdown (`.prose-book`, same renderer as the detail view) — no side-by-side pane, which would cramp the screen next to the metadata sidebar and chat panel. The editor stays mounted while hidden so undo history survives the toggle
+- **Content templates**: a blank page offers the type's heading skeleton (character: Appearance / Personality / Backstory / Abilities & Principle; ability: Mechanics / Origin / Limitations; …) — one click inserts it into the buffer. The full create form pre-fills the same skeleton; quick-capture stubs stay bare, the headings arrive at promotion time. Hardcoded per-type constants in the client, not user-editable template entities
+- **Tags** are edited as chips in the sidebar (Enter or comma to add) and stored in `metadata.tags`, riding the same autosave as everything else
 - The Flutter editor stays a plain text field with a wikilink-insert button — CodeMirror is web-only
 
 ### AI chat panel
@@ -616,6 +632,9 @@ This database holds years of creative work behind one static token — it gets d
 | 25 | `PUT /api/entities/:id` is a partial update | Clients edit one field at a time; `metadata` is replaced wholly when provided |
 | 26 | Paginated list endpoints return `{ items, total, limit, offset }` | Dashboard stats need `total` without a second endpoint |
 | 27 | Web components: Bits UI used directly, no shadcn-svelte layer | shadcn-svelte is copy-pasted Bits UI wrappers; every component gets restyled to the warm theme anyway, so the wrapper layer added indirection without value. Async pickers are hand-rolled |
+| 28 | Tags live in `metadata.tags`, filtered via `json_each` exact match | The one cross-type axis; no tag table, no tag screen — a tag exists because an entity carries it. JSON array + table-valued function keeps it at zero migrations |
+| 29 | Content templates are hardcoded per-type client constants | Headings prompt what to write and keep sheets consistent. Quick capture stays one step — stubs never get a skeleton; the editor offers it when the page is blank |
+| 30 | Vault health (broken links, orphans, stale stubs) is computed at read time | Same philosophy as backlinks: one pass over the vault per request, nothing stored, nothing to invalidate. Renames can't dangle links, but typing `[[a-typo]]` can — this is where those surface |
 
 ## Remaining (decide during implementation)
 

@@ -4,8 +4,9 @@
 	import EntityPicker, { type PickedEntity } from '$lib/components/EntityPicker.svelte';
 	import MarkdownEditor from '$lib/components/MarkdownEditor.svelte';
 	import RevisionHistory from '$lib/components/RevisionHistory.svelte';
+	import TagInput from '$lib/components/TagInput.svelte';
 	import TypeIcon from '$lib/components/TypeIcon.svelte';
-	import { METADATA_SUGGESTIONS, STATUS_DOT } from '$lib/entityMeta';
+	import { CONTENT_TEMPLATES, METADATA_SUGGESTIONS, STATUS_DOT } from '$lib/entityMeta';
 	import { timeAgo, wordCount } from '$lib/format';
 	import { renderMarkdown } from '$lib/markdown';
 	import { toast } from '$lib/toast.svelte';
@@ -61,11 +62,19 @@
 			? { ...data.refs[data.entity.parent_id] }
 			: null
 	);
+	// Tags are metadata too, but edited as chips — kept out of the generic rows.
+	let tags = $state<string[]>(
+		Array.isArray(data.entity.metadata.tags)
+			? data.entity.metadata.tags.filter((t): t is string => typeof t === 'string')
+			: []
+	);
 	let metaRows = $state(
-		Object.entries(data.entity.metadata).map(([key, value]) => ({
-			key,
-			value: typeof value === 'string' ? value : JSON.stringify(value)
-		}))
+		Object.entries(data.entity.metadata)
+			.filter(([key]) => key !== 'tags')
+			.map(([key, value]) => ({
+				key,
+				value: typeof value === 'string' ? value : JSON.stringify(value)
+			}))
 	);
 	let relationships = $state<Relationship[]>([...data.entity.relationships]);
 	let refs = $state({ ...data.refs });
@@ -115,8 +124,9 @@
 		const out: Record<string, unknown> = {};
 		for (const row of metaRows) {
 			const key = row.key.trim();
-			if (key) out[key] = parseMetaValue(row.value);
+			if (key && key !== 'tags') out[key] = parseMetaValue(row.value);
 		}
+		if (tags.length) out.tags = [...tags];
 		return out;
 	}
 
@@ -416,12 +426,16 @@
 		if (typeof fields.summary === 'string') summary = fields.summary;
 		if (typeof fields.content === 'string') content = fields.content;
 		if (fields.metadata && typeof fields.metadata === 'object') {
-			metaRows = Object.entries(fields.metadata as Record<string, unknown>).map(
-				([key, value]) => ({
+			const meta = fields.metadata as Record<string, unknown>;
+			tags = Array.isArray(meta.tags)
+				? meta.tags.filter((t): t is string => typeof t === 'string')
+				: [];
+			metaRows = Object.entries(meta)
+				.filter(([key]) => key !== 'tags')
+				.map(([key, value]) => ({
 					key,
 					value: typeof value === 'string' ? value : JSON.stringify(value)
-				})
-			);
+				}));
 		}
 	}
 </script>
@@ -556,6 +570,22 @@
 					<p class="px-6 py-6 text-center text-sm text-ink-faint">Nothing to preview yet.</p>
 				{/if}
 			{/if}
+			{#if !peeking && !content.trim() && CONTENT_TEMPLATES[type]}
+				<div
+					class="px-6 pb-3 text-center lg:pl-[max(1.5rem,calc((100%-72ch)/2))] lg:text-left"
+				>
+					<button
+						type="button"
+						onclick={() => {
+							content = CONTENT_TEMPLATES[type];
+							editor?.focus();
+						}}
+						class="rounded-full border border-dashed border-line px-3 py-1 text-xs text-ink-faint transition-colors hover:border-accent hover:text-accent-ink"
+					>
+						+ Start from the {TYPE_LABELS[type].toLowerCase()} template
+					</button>
+				</div>
+			{/if}
 			<p
 				class="px-6 pb-4 text-center text-xs text-ink-faint lg:pl-[max(1.5rem,calc((100%-72ch)/2))] lg:text-left"
 			>
@@ -669,6 +699,13 @@
 							<Plus class="inline size-3" /> field
 						</button>
 					</div>
+				</section>
+
+				<section>
+					<h3 class="mb-1.5 text-[0.6875rem] font-medium tracking-wider text-ink-faint uppercase">
+						Tags
+					</h3>
+					<TagInput bind:tags />
 				</section>
 
 				<section>

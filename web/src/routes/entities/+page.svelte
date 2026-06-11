@@ -5,7 +5,7 @@
 	import TypeIcon from '$lib/components/TypeIcon.svelte';
 	import { STATUS_DOT } from '$lib/entityMeta';
 	import { ENTITY_TYPES, STATUSES, STATUS_LABELS, TYPE_PLURALS } from '$lib/types';
-	import { ChevronLeft, ChevronRight, CirclePlus, Search } from '@lucide/svelte';
+	import { ChevronLeft, ChevronRight, CirclePlus, Search, X } from '@lucide/svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -79,6 +79,16 @@
 
 	<!-- Status chips + search -->
 	<div class="mb-5 flex flex-wrap items-center gap-2">
+		{#if data.filters.tag}
+			<a
+				href={buildUrl({ tag: null })}
+				title="Clear tag filter"
+				class="flex items-center gap-1 rounded-full border border-accent bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent-ink transition-colors hover:opacity-80"
+			>
+				#{data.filters.tag}
+				<X class="size-3" />
+			</a>
+		{/if}
 		{#each STATUSES as status (status)}
 			<a
 				href={buildUrl({ status: data.filters.status === status ? null : status })}

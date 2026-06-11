@@ -3,7 +3,7 @@
 	import EntityRow from '$lib/components/EntityRow.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import { toast } from '$lib/toast.svelte';
-	import { ArrowRight, Lightbulb, NotebookPen } from '@lucide/svelte';
+	import { ArrowRight, HeartPulse, Lightbulb, NotebookPen } from '@lucide/svelte';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -18,6 +18,16 @@
 		{ label: 'drafts', value: data.counts.draft },
 		{ label: 'stubs', value: data.counts.stub }
 	]);
+
+	const healthNotes = $derived(
+		[
+			data.health.brokenLinks &&
+				`${data.health.brokenLinks} broken ${data.health.brokenLinks === 1 ? 'link' : 'links'}`,
+			data.health.orphans && `${data.health.orphans} ${data.health.orphans === 1 ? 'orphan' : 'orphans'}`,
+			data.health.staleStubs &&
+				`${data.health.staleStubs} stale ${data.health.staleStubs === 1 ? 'stub' : 'stubs'}`
+		].filter((n): n is string => Boolean(n))
+	);
 </script>
 
 <svelte:head>
@@ -105,6 +115,17 @@
 			</div>
 		{/each}
 	</section>
+
+	{#if healthNotes.length}
+		<a
+			href="/health"
+			class="mt-4 flex items-center gap-2 rounded-xl border border-status-stub/40 bg-accent-soft/60 px-4 py-2.5 text-sm text-ink-muted transition-colors hover:border-accent hover:text-ink"
+		>
+			<HeartPulse class="size-4 shrink-0 text-status-stub" />
+			<span class="min-w-0 flex-1 truncate">{healthNotes.join(' · ')}</span>
+			<ArrowRight class="size-3.5 shrink-0" />
+		</a>
+	{/if}
 
 	<!-- Stubs awaiting triage -->
 	{#if data.stubs.length}
