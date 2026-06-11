@@ -1,7 +1,10 @@
 /**
- * Minimal streaming client for DeepSeek's OpenAI-compatible
- * chat-completions API. Text deltas are surfaced through a callback as
- * they arrive; tool-call deltas are accumulated and returned whole.
+ * Minimal streaming client for any OpenAI-compatible chat-completions
+ * API — DeepSeek by default, or whatever base URL is configured in
+ * settings (the URL must include the provider's version prefix, e.g.
+ * /v1, since /chat/completions is appended here). Text deltas are
+ * surfaced through a callback as they arrive; tool-call deltas are
+ * accumulated and returned whole.
  */
 
 export interface ToolCall {

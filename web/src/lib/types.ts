@@ -110,6 +110,16 @@ export interface Diagnostics {
 	stale_stubs: DiagnosticRef[];
 }
 
+/** AI provider config (GET/PUT /api/settings/ai). */
+export interface AiSettings {
+	api_key_set: boolean;
+	/** Masked, e.g. "…4Kp9" — the full key never leaves the Worker. */
+	api_key_hint: string | null;
+	api_key_source: 'settings' | 'env' | null;
+	api_url: string | null;
+	model: string | null;
+}
+
 export interface ListResponse<T> {
 	items: T[];
 	total: number;

@@ -12,6 +12,7 @@
 		Library,
 		Moon,
 		Search,
+		Settings,
 		Sun
 	} from '@lucide/svelte';
 	import '../app.css';
@@ -35,7 +36,8 @@
 		{ label: 'Dashboard', href: '/', icon: LayoutDashboard },
 		{ label: 'Entities', href: '/entities', icon: Library },
 		{ label: 'Search', href: '/search', icon: Search },
-		{ label: 'Health', href: '/health', icon: HeartPulse }
+		{ label: 'Health', href: '/health', icon: HeartPulse },
+		{ label: 'Settings', href: '/settings', icon: Settings }
 	];
 
 	function isActive(href: string): boolean {

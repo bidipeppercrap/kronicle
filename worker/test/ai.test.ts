@@ -128,6 +128,38 @@ describe("ai chat basics", () => {
     expect(evs.at(-1)?.event).toBe("done");
   });
 
+  it("uses the key, URL, and model saved in settings over env vars", async () => {
+    const guli = await create({ name: "Guli", type: "character" });
+    await req("/api/settings/ai", {
+      method: "PUT",
+      body: JSON.stringify({
+        api_key: "sk-from-settings",
+        api_url: "https://ai.example.com",
+        model: "custom-model",
+      }),
+    });
+
+    let auth = "";
+    let sent = "";
+    fetchMock
+      .get("https://ai.example.com")
+      .intercept({ path: "/chat/completions", method: "POST" })
+      .reply(
+        200,
+        (opts) => {
+          auth = String((opts.headers as Record<string, string>).authorization ?? "");
+          sent = String(opts.body);
+          return completion({ content: "Ok" });
+        },
+        { headers: { "content-type": "text/event-stream" } }
+      );
+
+    const evs = await events(await chat(guli.id));
+    expect(evs.at(-1)?.event).toBe("done");
+    expect(auth).toBe("Bearer sk-from-settings");
+    expect(JSON.parse(sent).model).toBe("custom-model");
+  });
+
   it("injects the entity's context into the system prompt", async () => {
     const town = await create({ name: "Bangsur Town", type: "location" });
     const guli = await create({
@@ -269,6 +301,54 @@ describe("write tools become proposals", () => {
     const proposal = evs.find((e) => e.event === "proposal")?.data;
     expect(proposal.tool).toBe("apply_proposal");
     expect(proposal.args.id).toBe("p_abc123");
+  });
+
+  it("refuses to relay apply_proposal for a proposal created the same turn", async () => {
+    const guli = await create({
+      name: "Guli",
+      type: "character",
+      content: "Old prose.",
+    });
+
+    // Round 1: the model proposes an edit.
+    mockDeepSeek(
+      completion(
+        toolCallDelta("update_entity", {
+          id_or_slug: "guli",
+          change_summary: "Rewrite",
+          content: "New prose.",
+        })
+      )
+    );
+    // Round 2: it immediately tries to apply its own proposal, lifting the
+    // id from the tool result it just received.
+    fetchMock
+      .get("https://api.deepseek.com")
+      .intercept({ path: "/chat/completions", method: "POST" })
+      .reply(
+        200,
+        (opts) => {
+          const msgs = JSON.parse(String(opts.body)).messages;
+          const toolMsg = msgs.find((m: any) => m.role === "tool");
+          const id = /p_\w+/.exec(toolMsg.content)![0];
+          return completion(toolCallDelta("apply_proposal", { proposal_id: id }));
+        },
+        { headers: { "content-type": "text/event-stream" } }
+      );
+    // Round 3: it gets the refusal and reports back.
+    let third = "";
+    mockDeepSeek(completion({ content: "It awaits your approval." }), (b) => (third = b));
+
+    const evs = await events(await chat(guli.id, "Rewrite it"));
+
+    // Only the update_entity proposal reaches the client — no relay event.
+    const proposals = evs.filter((e) => e.event === "proposal");
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0].data.tool).toBe("update_entity");
+
+    const toolMsgs = JSON.parse(third).messages.filter((m: any) => m.role === "tool");
+    expect(toolMsgs.at(-1).content).toContain("has not seen it");
+    expect(evs.at(-1)?.event).toBe("done");
   });
 
   it("feeds invalid tool arguments back as an error result", async () => {

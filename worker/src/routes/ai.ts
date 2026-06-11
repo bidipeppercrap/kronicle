@@ -17,6 +17,7 @@ import {
 import type { ChatMessage, ToolDefinition } from "../lib/deepseek";
 import { streamCompletion } from "../lib/deepseek";
 import { resolveEntity, requireEntity, type EntityRow } from "../lib/resolve";
+import { getAiConfig } from "../lib/settings";
 import { serialize } from "../lib/util";
 import { parseJson } from "../lib/validate";
 import type { Bindings } from "../types";
@@ -305,7 +306,8 @@ async function buildSystemPrompt(
 Rules:
 - Read the vault freely with get_entity, search_entities, and list_entities.
 - You cannot change anything yourself. update_entity, create_entity, add_relationship, and remove_relationship only create PROPOSALS — the writer sees each one with Apply/Discard buttons. Never claim a change has been made; say it is proposed and awaiting approval.
-- Earlier proposals appear in the transcript as "[Proposed p_xxx: … — applied/discarded/pending]". Only call apply_proposal when the writer's latest message explicitly asks to apply a pending one.
+- Earlier proposals appear in the transcript as "[Proposed p_xxx: … — applied/discarded/pending]". Only call apply_proposal when the writer's latest message explicitly asks to apply a pending one. Never call apply_proposal for a proposal you created in this same turn — the writer hasn't seen it yet.
+- If a write tool returns an error, the proposal was NOT created. Say so and ask how to proceed; never paste the rewritten content into chat as a substitute.
 - update_entity content must be the full replacement Markdown, not a fragment.
 - Prose references other entities as [[slug]] wikilinks (or [[slug|display text]]). Keep existing wikilinks intact unless the change is about them.
 - New entities always land as drafts; promoting to canon is the writer's call.
@@ -332,7 +334,8 @@ ${entity.content || "(blank — nothing written yet)"}`;
 
 interface TurnState {
   readCalls: number;
-  proposals: number;
+  /** Proposal ids created this turn — apply_proposal may not target these. */
+  createdIds: Set<string>;
 }
 
 async function runReadTool(
@@ -475,7 +478,7 @@ async function runTool(
     if (WRITE_TOOLS.has(name)) {
       const { summary, args: restArgs } = await buildProposal(db, name, args);
       const proposal = { id: `p_${nanoid(8)}`, tool: name, summary, args: restArgs };
-      state.proposals++;
+      state.createdIds.add(proposal.id);
       await stream.writeSSE({
         event: "proposal",
         data: JSON.stringify(proposal),
@@ -485,6 +488,11 @@ async function runTool(
 
     if (name === "apply_proposal") {
       const a = applyArgs.parse(args);
+      // Consent must predate the proposal: applying one created this same
+      // turn would mean the writer never saw it (DESIGN.md, "Apply it").
+      if (state.createdIds.has(a.proposal_id)) {
+        return `Error: proposal ${a.proposal_id} was created this turn — the writer has not seen it yet. It stays pending until they click Apply or ask for it in a later message. Tell them it is awaiting their approval.`;
+      }
       await stream.writeSSE({
         event: "proposal",
         data: JSON.stringify({
@@ -510,8 +518,13 @@ async function runTool(
 // ——— Route ———
 
 app.post("/ai/chat", async (c) => {
-  if (!c.env.DEEPSEEK_API_KEY) {
-    throw new HTTPException(500, { message: "DEEPSEEK_API_KEY is not configured" });
+  const db = drizzle(c.env.DB);
+  const ai = await getAiConfig(db, c.env);
+  const apiKey = ai.apiKey;
+  if (!apiKey) {
+    throw new HTTPException(500, {
+      message: "No AI API key configured — add one in Settings",
+    });
   }
   const body = await parseJson(c, chatSchema);
   if (!body.entity_id) {
@@ -520,7 +533,6 @@ app.post("/ai/chat", async (c) => {
     });
   }
 
-  const db = drizzle(c.env.DB);
   const entity = await requireEntity(db, body.entity_id);
   const system = await buildSystemPrompt(db, entity);
   const messages: ChatMessage[] = [
@@ -529,13 +541,13 @@ app.post("/ai/chat", async (c) => {
   ];
 
   return streamSSE(c, async (stream) => {
-    const state: TurnState = { readCalls: 0, proposals: 0 };
+    const state: TurnState = { readCalls: 0, createdIds: new Set() };
     try {
       for (let round = 0; round < MAX_ROUNDS; round++) {
         const result = await streamCompletion({
-          apiKey: c.env.DEEPSEEK_API_KEY,
-          baseUrl: c.env.DEEPSEEK_API_URL,
-          model: c.env.DEEPSEEK_MODEL,
+          apiKey,
+          baseUrl: ai.baseUrl,
+          model: ai.model,
           messages,
           tools: TOOLS,
           onText: (delta) =>

@@ -104,13 +104,18 @@
 		} else if (event === 'proposal') {
 			if (data.tool === 'apply_proposal') {
 				// Consent came from the writer's own message — apply the
-				// referenced pending proposal right away (DESIGN.md).
+				// referenced pending proposal right away (DESIGN.md). Only
+				// proposals from *earlier* turns qualify: one created in this
+				// same streaming turn was never seen, so it stays pending.
 				const refId = (data.args as { id?: string })?.id;
 				const ref = turns
+					.filter((t) => t !== turn)
 					.flatMap((t) => t.proposals)
 					.find((p) => p.id === refId && (p.status === 'pending' || p.status === 'failed'));
 				if (ref) void apply(ref);
-				else toast(`No pending proposal ${refId ?? ''} to apply`, 'err');
+				else if (turn.proposals.some((p) => p.id === refId)) {
+					toast('The AI tried to apply its own new proposal — review it below', 'err');
+				} else toast(`No pending proposal ${refId ?? ''} to apply`, 'err');
 			} else {
 				turn.proposals.push({ ...(data as unknown as Proposal), status: 'pending' });
 			}

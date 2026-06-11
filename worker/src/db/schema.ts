@@ -103,6 +103,16 @@ export const entityRevisions = sqliteTable(
   ]
 );
 
+/**
+ * Single-row-per-key app settings (AI provider key etc.). Values set here
+ * win over the equivalent Worker env vars, which remain as fallbacks.
+ */
+export const settings = sqliteTable("settings", {
+  key: text().primaryKey(),
+  value: text().notNull(),
+  updated_at: text().notNull(),
+});
+
 export const media = sqliteTable("media", {
   id: text().primaryKey(),
   entity_id: text()
