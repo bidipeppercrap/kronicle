@@ -1,6 +1,6 @@
 # Kronicle — Design Document
 
-> Written 2026-06-09. Updated 2026-06-10: renamed to Kronicle, design review fixes (immutable IDs, status column, auth proxy, quick capture, build phases); added Web UI Design (typography + warm editorial theme); added writing-tool features (backlinks, editor spec, backups, AI ground rules, revisions, era validation, server-side slug rename); added AI chat (per-entity tool-calling chat, approval-gated writes); added Mobile UI Design (Material 3 warm theme + bundled OFL fonts); added Cloudflare Access in front of the web app + implementation defaults (monorepo layout, server-side slug generation, partial PUT, list envelope, revision endpoints); built the Phase 1 web app (`web/`) — component layer is Bits UI directly + hand-styled Tailwind rather than shadcn-svelte (decision 27); built per-entity AI chat from Phase 3 — Worker `POST /api/ai/chat` (DeepSeek tool loop, SSE, read tools capped at 8/turn, write tools intercepted as proposals) + web `AiChatPanel` on detail/edit views (diff and change-card proposals with Apply/Discard; in the editor, applied edits merge into the open buffer and ride autosave).
+> Written 2026-06-09. Updated 2026-06-10: renamed to Kronicle, design review fixes (immutable IDs, status column, auth proxy, quick capture, build phases); added Web UI Design (typography + warm editorial theme); added writing-tool features (backlinks, editor spec, backups, AI ground rules, revisions, era validation, server-side slug rename); added AI chat (per-entity tool-calling chat, approval-gated writes); added Mobile UI Design (Material 3 warm theme + bundled OFL fonts); added Cloudflare Access in front of the web app + implementation defaults (monorepo layout, server-side slug generation, partial PUT, list envelope, revision endpoints); built the Phase 1 web app (`web/`) — component layer is Bits UI directly + hand-styled Tailwind rather than shadcn-svelte (decision 27); built per-entity AI chat from Phase 3 — Worker `POST /api/ai/chat` (DeepSeek tool loop, SSE, read tools capped at 8/turn, write tools intercepted as proposals) + web `AiChatPanel` on detail/edit views (diff and change-card proposals with Apply/Discard; in the editor, applied edits merge into the open buffer and ride autosave). Updated 2026-06-11: considered and rejected an app-level login (first-run root user + TOTP QR) — Cloudflare Access stays the sole web gate; added its setup runbook to the Auth section. Editor gains a Write/Peek toggle (Ctrl+E) that swaps the editing surface with rendered Markdown in place — a side-by-side preview pane was rejected for screen cost.
 > This is the reference for building the app.
 > When building, read this first. When the design changes, update this.
 
@@ -403,7 +403,16 @@ All API requests include `Authorization: Bearer <static-token>`. The Worker vali
 
 **The token must never reach the browser.** The SvelteKit app calls the Worker exclusively from its server routes (`+page.server.ts` / `+server.ts`), where the token lives in an environment variable. Shipping it in client-side JS on a public URL would hand out full write access plus the DeepSeek proxy (your API credits). The Flutter APK does embed the token — accepted risk for a personal device.
 
-**The web app itself sits behind Cloudflare Access** (Zero Trust free tier, email allowlist). The token-proxy keeps the secret out of the browser, but on its own it would attach that token for *any* visitor to the public URL — Access keeps strangers out of the proxy. Zero application code; configured on the SvelteKit Worker's route when the web app deploys.
+**The web app itself sits behind Cloudflare Access** (Zero Trust free tier, email allowlist). The token-proxy keeps the secret out of the browser, but on its own it would attach that token for *any* visitor to the public URL — Access keeps strangers out of the proxy. Zero application code; configured on the SvelteKit Worker's route when the web app deploys. An in-app login (root user + TOTP) was considered and rejected: it would duplicate what Access provides for free, and localhost dev needs no gate.
+
+**Access setup runbook** (one time, at web deploy):
+
+1. Cloudflare dashboard → Zero Trust → Access → Applications → "Add an application" (type: self-hosted).
+2. Application domain: the SvelteKit Worker's URL (`kronicle.<account>.workers.dev` or the custom domain).
+3. Policy: Allow → Include → Emails → the owner's email.
+4. Session duration: 30 days.
+5. Login method: One-time PIN (email code) — enabled by default, no identity provider setup needed.
+6. Verify: open the URL in a private window → Cloudflare lock screen → email PIN → app loads. A second visit skips the lock screen until the session expires.
 
 ---
 
@@ -486,6 +495,7 @@ The most-used surface in the app:
 - **CodeMirror 6** with Markdown mode, set in iA Writer Quattro
 - Typing `[[` opens entity autocomplete (searches names and slugs, inserts `[[slug]]`) — without this, wikilinks would mean memorizing slugs
 - **Autosave**: debounced PUT after ~2s idle, plus a localStorage backup of the unsaved buffer. Losing prose is this app's worst possible failure; it must be impossible
+- **Write/Peek toggle** (toolbar button or Ctrl+E): swaps the editing surface in place with rendered Markdown (`.prose-book`, same renderer as the detail view) — no side-by-side pane, which would cramp the screen next to the metadata sidebar and chat panel. The editor stays mounted while hidden so undo history survives the toggle
 - The Flutter editor stays a plain text field with a wikilink-insert button — CodeMirror is web-only
 
 ### AI chat panel

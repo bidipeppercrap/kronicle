@@ -6,6 +6,7 @@
 	import TypeIcon from '$lib/components/TypeIcon.svelte';
 	import { METADATA_SUGGESTIONS, STATUS_DOT } from '$lib/entityMeta';
 	import { timeAgo, wordCount } from '$lib/format';
+	import { renderMarkdown } from '$lib/markdown';
 	import { toast } from '$lib/toast.svelte';
 	import {
 		ENTITY_TYPES,
@@ -29,16 +30,18 @@
 		ArrowRightLeft,
 		Check,
 		CircleAlert,
+		Eye,
 		History,
 		ImagePlus,
 		LoaderCircle,
+		PenLine,
 		Plus,
 		Sparkles,
 		Trash2,
 		X
 	} from '@lucide/svelte';
 	import { AlertDialog } from 'bits-ui';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -65,6 +68,18 @@
 	);
 	let relationships = $state<Relationship[]>([...data.entity.relationships]);
 	let refs = $state({ ...data.refs });
+
+	// ——— Peek (rendered-Markdown preview, swapped in place of the editor) ———
+	let peeking = $state(false);
+	let editor = $state<{ focus: () => void }>();
+
+	async function togglePeek() {
+		peeking = !peeking;
+		if (!peeking) {
+			await tick();
+			editor?.focus();
+		}
+	}
 
 	// ——— Save machinery ———
 	interface Snapshot {
@@ -408,6 +423,17 @@
 	onbeforeunload={(e) => {
 		if (saveState === 'dirty' || saveState === 'saving') e.preventDefault();
 	}}
+	onkeydown={(e) => {
+		if (!(e.ctrlKey || e.metaKey)) return;
+		if (e.key === 'e') {
+			e.preventDefault();
+			togglePeek();
+		} else if (e.key === 's' && peeking) {
+			// The editor's own Mod-S keymap can't fire while it's hidden.
+			e.preventDefault();
+			save();
+		}
+	}}
 />
 
 <div class="flex min-h-dvh flex-col">
@@ -439,6 +465,22 @@
 				<Check class="size-3.5 text-status-canon" /> saved {timeAgo(savedAt)}
 			{/if}
 		</span>
+		<button
+			type="button"
+			onclick={togglePeek}
+			aria-pressed={peeking}
+			aria-label={peeking ? 'Back to writing' : 'Preview rendered Markdown'}
+			title="{peeking ? 'Write' : 'Peek'} (Ctrl+E)"
+			class="flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm transition-colors hover:border-accent hover:text-accent-ink {peeking
+				? 'border-accent bg-accent-soft text-accent-ink'
+				: 'border-line bg-surface text-ink-muted'}"
+		>
+			{#if peeking}
+				<PenLine class="size-4" />
+			{:else}
+				<Eye class="size-4" />
+			{/if}
+		</button>
 		<button
 			type="button"
 			onclick={() => (chatOpen = !chatOpen)}
@@ -485,11 +527,24 @@
 	<div class="flex min-h-0 flex-1 flex-col lg:flex-row">
 		<!-- The manuscript -->
 		<div class="min-w-0 flex-1">
-			<MarkdownEditor
-				bind:value={content}
-				placeholder="Draft in Markdown. Type [[ to link an entity."
-				onsave={save}
-			/>
+			<!-- Hidden, not unmounted, while peeking — keeps CodeMirror's undo history and cursor. -->
+			<div class={peeking ? 'hidden' : 'contents'}>
+				<MarkdownEditor
+					bind:this={editor}
+					bind:value={content}
+					placeholder="Draft in Markdown. Type [[ to link an entity."
+					onsave={save}
+				/>
+			</div>
+			{#if peeking}
+				{#if content.trim()}
+					<div class="prose-book animate-rise mx-auto max-w-[68ch] px-6 py-6">
+						{@html renderMarkdown(content)}
+					</div>
+				{:else}
+					<p class="px-6 py-6 text-center text-sm text-ink-faint">Nothing to preview yet.</p>
+				{/if}
+			{/if}
 			<p
 				class="px-6 pb-4 text-center text-xs text-ink-faint lg:pl-[max(1.5rem,calc((100%-72ch)/2))] lg:text-left"
 			>
