@@ -384,6 +384,14 @@
 	animation: rise-in 200ms ease-out both;
 }
 
+@utility scrollbar-none {
+	scrollbar-width: none;
+
+	&::-webkit-scrollbar {
+		display: none;
+	}
+}
+
 @media (prefers-reduced-motion: reduce) {
 	*,
 	*::before,

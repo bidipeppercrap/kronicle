@@ -2,10 +2,12 @@
 	import { page } from '$app/state';
 	import favicon from '$lib/assets/favicon.svg';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
+	import { isMac, modKey } from '$lib/platform';
 	import { toasts } from '$lib/toast.svelte';
 	import {
 		CirclePlus,
 		Command as CommandIcon,
+		Compass,
 		Feather,
 		HeartPulse,
 		LayoutDashboard,
@@ -89,10 +91,14 @@
 			onclick={() => (paletteOpen = true)}
 			class="mt-2 flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-ink-muted transition-colors hover:bg-surface hover:text-ink"
 		>
-			<CommandIcon class="size-4" />
+			{#if isMac}
+				<CommandIcon class="size-4" />
+			{:else}
+				<Compass class="size-4" />
+			{/if}
 			<span class="flex-1 text-left">Jump or capture</span>
 			<kbd class="rounded border border-line bg-inset px-1.5 py-0.5 font-mono text-[0.625rem] text-ink-faint">
-				⌘K
+				{modKey}K
 			</kbd>
 		</button>
 

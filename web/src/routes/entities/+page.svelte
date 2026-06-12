@@ -53,7 +53,10 @@
 	</div>
 
 	<!-- Type tabs -->
-	<nav class="mb-3 flex gap-1 overflow-x-auto border-b border-line-soft pb-px" aria-label="Type">
+	<nav
+		class="scrollbar-none mb-3 flex gap-1 overflow-x-auto border-b border-line-soft pb-px"
+		aria-label="Type"
+	>
 		<a
 			href={buildUrl({ type: null })}
 			class="shrink-0 rounded-t-lg border-b-2 px-3 py-2 text-sm transition-colors

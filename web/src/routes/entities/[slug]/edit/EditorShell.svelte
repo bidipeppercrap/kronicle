@@ -8,6 +8,7 @@
 	import TypeIcon from '$lib/components/TypeIcon.svelte';
 	import { CONTENT_TEMPLATES, METADATA_SUGGESTIONS, STATUS_DOT } from '$lib/entityMeta';
 	import { timeAgo, wordCount } from '$lib/format';
+	import { modKey } from '$lib/platform';
 	import { renderMarkdown } from '$lib/markdown';
 	import { toast } from '$lib/toast.svelte';
 	import {
@@ -911,7 +912,7 @@
 
 				<p class="flex items-center gap-1.5 text-xs text-ink-faint">
 					<TypeIcon {type} class="size-3.5" />
-					Autosaves 2s after you pause. ⌘S saves now.
+					Autosaves 2s after you pause. {modKey}S saves now.
 				</p>
 			</div>
 		</aside>
