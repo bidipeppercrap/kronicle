@@ -4,6 +4,8 @@ import { HTTPException } from "hono/http-exception";
 import aiRoutes from "./routes/ai";
 import diagnosticsRoutes from "./routes/diagnostics";
 import entitiesRoutes from "./routes/entities";
+import exportRoutes from "./routes/export";
+import importRoutes from "./routes/import";
 import mediaRoutes from "./routes/media";
 import relationshipsRoutes from "./routes/relationships";
 import searchRoutes from "./routes/search";
@@ -26,6 +28,8 @@ app.route("/api", diagnosticsRoutes);
 app.route("/api", aiRoutes);
 app.route("/api", settingsRoutes);
 app.route("/api", timelineRoutes);
+app.route("/api", exportRoutes);
+app.route("/api", importRoutes);
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));
 

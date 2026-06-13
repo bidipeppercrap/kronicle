@@ -11,6 +11,7 @@
 		CirclePlus,
 		Command as CommandIcon,
 		Compass,
+		DatabaseBackup,
 		HeartPulse,
 		LayoutDashboard,
 		Library,
@@ -44,6 +45,7 @@
 		{ label: 'Timeline', href: '/timeline', icon: CalendarClock },
 		{ label: 'Search', href: '/search', icon: Search },
 		{ label: 'Health', href: '/health', icon: HeartPulse },
+		{ label: 'Backup', href: '/export', icon: DatabaseBackup },
 		{ label: 'Settings', href: '/settings', icon: Settings }
 	];
 
