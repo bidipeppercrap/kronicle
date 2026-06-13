@@ -8,6 +8,7 @@ import mediaRoutes from "./routes/media";
 import relationshipsRoutes from "./routes/relationships";
 import searchRoutes from "./routes/search";
 import settingsRoutes from "./routes/settings";
+import timelineRoutes from "./routes/timeline";
 import type { Bindings } from "./types";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -24,6 +25,7 @@ app.route("/api", searchRoutes);
 app.route("/api", diagnosticsRoutes);
 app.route("/api", aiRoutes);
 app.route("/api", settingsRoutes);
+app.route("/api", timelineRoutes);
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));
 

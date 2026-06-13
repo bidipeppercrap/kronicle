@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import { invalidateAll } from '$app/navigation';
 	import { unifiedDiff } from '$lib/diff';
+	import { editorBridge } from '$lib/editorBridge.svelte';
 	import { renderMarkdown } from '$lib/markdown';
 	import { toast } from '$lib/toast.svelte';
 	import {
@@ -14,10 +16,12 @@
 	} from '@lucide/svelte';
 
 	/**
-	 * Per-entity AI chat (DESIGN.md, AI Chat). Stateless on the server: this
-	 * component holds the whole conversation and sends it every turn. Write
-	 * tools arrive as proposals; nothing changes until Apply, which goes
-	 * through the normal REST save path.
+	 * Route-aware AI chat (DESIGN.md, AI Chat). One panel lives in the shell and
+	 * its context follows the current route — the entity you're viewing, the
+	 * timeline era you're on, or the whole vault. Stateless on the server: this
+	 * component holds the whole conversation and sends it every turn. Write tools
+	 * arrive as proposals; nothing changes until Apply, which goes through the
+	 * normal REST save path (or merges into the open editor buffer).
 	 */
 
 	interface Proposal {
@@ -31,26 +35,31 @@
 	interface Turn {
 		role: 'user' | 'assistant';
 		text: string;
+		/** [Context: …] marker emitted with this user turn — wire-only, not shown. */
+		context?: string;
 		proposals: Proposal[];
 		reading: string[];
 	}
 
-	let {
-		entity,
-		current,
-		open = $bindable(false),
-		onLocalUpdate
-	}: {
-		entity: { id: string; name: string };
-		/** Live buffer the content diff is rendered against (DESIGN.md). */
-		current: { content: string; summary: string };
-		open?: boolean;
-		/**
-		 * Editor hook: apply an update to this entity by merging into the
-		 * open buffer (autosave persists it) instead of PUTting around it.
-		 */
-		onLocalUpdate?: (fields: Record<string, unknown>) => void;
-	} = $props();
+	interface RouteContext {
+		entity_id?: string;
+		/** Short chip label shown in the header. */
+		label: string;
+		/** What the [Context: …] marker says when this becomes the live focus. */
+		marker: string;
+	}
+
+	/** The slice of an entity's load data the chat reads off the current route. */
+	interface EntityLike {
+		id: string;
+		name: string;
+		type: string;
+		status: string;
+		content: string;
+		summary: string;
+	}
+
+	let { open = $bindable(false) }: { open?: boolean } = $props();
 
 	const TOOL_LABELS: Record<string, string> = {
 		update_entity: 'Edit',
@@ -59,10 +68,65 @@
 		remove_relationship: 'Remove relationship'
 	};
 
+	const ROUTE_LABEL: Record<string, string> = {
+		'/': 'the dashboard',
+		'/entities': 'the entity list',
+		'/search': 'search',
+		'/graph': 'the relationship graph',
+		'/health': 'vault health',
+		'/settings': 'settings'
+	};
+
+	const VAULT: RouteContext = { label: 'whole vault', marker: 'now browsing the whole vault' };
+
+	// ——— Route-derived context ———
+
+	function routeEntity(): EntityLike | undefined {
+		return (page.data as { entity?: EntityLike } | undefined)?.entity;
+	}
+
+	const routeContext = $derived.by((): RouteContext => {
+		const ent = routeEntity();
+		if (ent?.id) {
+			return {
+				entity_id: ent.id,
+				label: ent.name,
+				marker: `now viewing ${ent.name} (${ent.type}, ${ent.status})`
+			};
+		}
+		const path = page.url.pathname;
+		if (path.startsWith('/timeline')) {
+			const era = page.url.searchParams.get('era');
+			return {
+				label: era ? `timeline · ${era}` : 'timeline',
+				marker: era ? `now viewing the timeline (era ${era})` : 'now viewing the timeline'
+			};
+		}
+		return { label: 'whole vault', marker: `now browsing ${ROUTE_LABEL[path] ?? 'the vault'}` };
+	});
+
+	// "Clear to vault-wide": talk to the whole vault from an entity page. Resets
+	// on navigation so the chat re-attaches to wherever you land next.
+	let detached = $state(false);
+	let lastPath = page.url.pathname;
+	$effect(() => {
+		if (page.url.pathname !== lastPath) {
+			lastPath = page.url.pathname;
+			detached = false;
+		}
+	});
+
+	const effective = $derived(detached ? VAULT : routeContext);
+
 	let turns = $state<Turn[]>([]);
 	let input = $state('');
+	let inputEl = $state<HTMLTextAreaElement | null>(null);
 	let busy = $state(false);
 	let scrollEl = $state<HTMLElement | null>(null);
+	/** Last context marker we sent — a new one is emitted only when it changes. */
+	let lastSentMarker = $state<string | null>(null);
+	/** Saved content for off-route update proposals, fetched lazily for the diff. */
+	let baselines = $state<Record<string, string>>({});
 
 	// Follow the stream: keep the transcript pinned to the bottom.
 	$effect(() => {
@@ -72,16 +136,25 @@
 		if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
 	});
 
+	// Opening the panel (⌘/Ctrl-J or the sidebar toggle) drops the cursor
+	// straight into the composer. The textarea only exists while open, so
+	// inputEl flips null→element on mount and re-runs this once it's bound.
+	$effect(() => {
+		if (open) inputEl?.focus();
+	});
+
 	/**
-	 * Wire-format history: plain {role, content}. Proposals and their
-	 * outcomes are flattened into the assistant turn so the model knows
-	 * next turn what landed — the server remembers nothing (DESIGN.md).
+	 * Wire-format history: plain {role, content}. Proposals and their outcomes,
+	 * and the [Context: …] markers, are flattened into the turns so the model
+	 * knows next turn what landed and where the writer is looking — the server
+	 * remembers nothing (DESIGN.md).
 	 */
 	function wireHistory(): { role: string; content: string }[] {
 		const msgs: { role: string; content: string }[] = [];
 		for (const t of turns) {
 			if (t.role === 'user') {
-				msgs.push({ role: 'user', content: t.text });
+				const content = t.context ? `[Context: ${t.context}]\n\n${t.text}` : t.text;
+				msgs.push({ role: 'user', content });
 				continue;
 			}
 			let content = t.text;
@@ -93,6 +166,31 @@
 			if (content.trim()) msgs.push({ role: 'assistant', content: content.trim() });
 		}
 		return msgs;
+	}
+
+	/** Best-known baseline to diff an update_entity proposal against. */
+	function diffBase(id: string): string {
+		if (editorBridge.entityId === id && editorBridge.current) return editorBridge.current.content;
+		const ent = routeEntity();
+		if (ent?.id === id) return ent.content;
+		return baselines[id] ?? '';
+	}
+
+	/** Fetch saved content for a proposal whose entity isn't on-route or open. */
+	async function ensureBaseline(id: string) {
+		if (editorBridge.entityId === id) return;
+		if (routeEntity()?.id === id) return;
+		if (baselines[id] !== undefined) return;
+		baselines[id] = '';
+		try {
+			const res = await fetch(`/api/entities/${id}`);
+			if (res.ok) {
+				const data = (await res.json()) as { content?: string };
+				baselines[id] = data.content ?? '';
+			}
+		} catch {
+			// Leave the empty baseline — the diff just renders as all-new.
+		}
 	}
 
 	function handleEvent(turn: Turn, event: string, data: Record<string, unknown>) {
@@ -117,7 +215,11 @@
 					toast('The AI tried to apply its own new proposal — review it below', 'err');
 				} else toast(`No pending proposal ${refId ?? ''} to apply`, 'err');
 			} else {
-				turn.proposals.push({ ...(data as unknown as Proposal), status: 'pending' });
+				const proposal = { ...(data as unknown as Proposal), status: 'pending' as const };
+				turn.proposals.push(proposal);
+				if (proposal.tool === 'update_entity' && typeof proposal.args.id === 'string') {
+					void ensureBaseline(proposal.args.id);
+				}
 			}
 		} else if (event === 'error') {
 			toast(String(data.message ?? 'AI chat failed'), 'err');
@@ -129,7 +231,15 @@
 		const text = input.trim();
 		if (!text || busy) return;
 		input = '';
-		turns.push({ role: 'user', text, proposals: [], reading: [] });
+		// Tag the turn with a context marker whenever the focus differs from the
+		// last one we sent (including the first message), so the transcript stays
+		// self-describing once the writer navigates mid-conversation. Wire-only —
+		// never shown in the bubble.
+		const marker = effective.marker;
+		const context = marker !== lastSentMarker ? marker : undefined;
+		lastSentMarker = marker;
+		const entityId = effective.entity_id;
+		turns.push({ role: 'user', text, context, proposals: [], reading: [] });
 		const history = wireHistory();
 		// Read the turn back out of the $state array: mutations must go
 		// through the reactive proxy, or the transcript never re-renders.
@@ -140,7 +250,7 @@
 			const res = await fetch('/api/ai/chat', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ entity_id: entity.id, messages: history })
+				body: JSON.stringify({ entity_id: entityId, messages: history })
 			});
 			if (!res.ok || !res.body) {
 				const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -186,30 +296,37 @@
 		}
 	}
 
-	/** Apply = dumb dispatch through the normal REST save path (DESIGN.md). */
+	/**
+	 * Apply = dumb dispatch through the normal REST save path, then refetch
+	 * (DESIGN.md). The one exception: an update to the entity open in the editor
+	 * merges into the live buffer instead, so a PUT can't clobber unsaved prose.
+	 */
 	async function apply(p: Proposal) {
 		if (p.status === 'applying' || p.status === 'applied') return;
 		p.status = 'applying';
 		try {
 			if (p.tool === 'update_entity') {
 				const { id, ...fields } = p.args as { id: string } & Record<string, unknown>;
-				if (onLocalUpdate && id === entity.id) {
-					onLocalUpdate(fields);
+				if (editorBridge.entityId === id && editorBridge.applyUpdate) {
+					editorBridge.applyUpdate(fields);
 				} else {
 					await rest('PUT', `/api/entities/${id}`, fields);
+					await invalidateAll();
 				}
 			} else if (p.tool === 'create_entity') {
 				await rest('POST', '/api/entities', p.args);
+				await invalidateAll();
 			} else if (p.tool === 'add_relationship') {
 				await rest('POST', '/api/relationships', p.args);
+				await invalidateAll();
 			} else if (p.tool === 'remove_relationship') {
 				await rest('DELETE', `/api/relationships/${p.args.id}`);
+				await invalidateAll();
 			} else {
 				throw new Error(`Unknown proposal tool: ${p.tool}`);
 			}
 			p.status = 'applied';
 			toast(`Applied — ${p.summary}`);
-			if (!onLocalUpdate) await invalidateAll();
 		} catch (err) {
 			p.status = 'failed';
 			toast(err instanceof Error ? err.message : 'Apply failed', 'err');
@@ -235,9 +352,22 @@
 		<header class="flex items-center gap-2.5 border-b border-line-soft px-4 py-3">
 			<Sparkles class="size-4 shrink-0 text-accent-ink" />
 			<div class="min-w-0 flex-1">
-				<p class="truncate text-sm font-medium text-ink">Chat — {entity.name}</p>
-				<p class="text-[0.6875rem] text-ink-faint">
-					Proposals only. Nothing changes until you apply it.
+				<p class="text-sm font-medium text-ink">Chat</p>
+				<p class="flex items-center gap-1.5 text-[0.6875rem] text-ink-faint">
+					<span
+						class="min-w-0 truncate rounded-full border border-line bg-surface px-1.5 py-px font-medium text-ink-muted"
+					>
+						{effective.label}
+					</span>
+					{#if routeContext.entity_id}
+						<button
+							type="button"
+							onclick={() => (detached = !detached)}
+							class="shrink-0 text-accent-ink transition-colors hover:underline"
+						>
+							{detached ? 'focus this page' : 'whole vault'}
+						</button>
+					{/if}
 				</p>
 			</div>
 			<button
@@ -252,9 +382,9 @@
 
 		<div bind:this={scrollEl} class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
 			{#if !turns.length}
-				<p class="m-auto max-w-[26ch] text-center text-sm text-ink-faint italic">
-					Discuss {entity.name} — ask for a rewrite and you'll get a diff to apply or discard.
-					Closing the panel ends the conversation.
+				<p class="m-auto max-w-[28ch] text-center text-sm text-ink-faint italic">
+					Chatting about {effective.label}. Ask for a rewrite and you'll get a diff to apply or
+					discard — closing the panel ends the conversation.
 				</p>
 			{/if}
 
@@ -311,12 +441,12 @@
 
 								{#if p.status === 'pending' || p.status === 'failed' || p.status === 'applying'}
 									{#if p.tool === 'update_entity' && typeof p.args.content === 'string'}
-										<!-- Diff against the current buffer, computed at render
-										     time so edits landing mid-conversation show up. -->
+										<!-- Diff against the saved content (or the open editor buffer),
+										     computed at render time so edits landing mid-conversation show up. -->
 										<div
 											class="mt-2 max-h-72 overflow-y-auto rounded-lg border border-line-soft bg-inset/40 p-2 font-mono text-[0.6875rem] leading-relaxed"
 										>
-											{#each unifiedDiff(current.content, p.args.content) as row, k (k)}
+											{#each unifiedDiff(diffBase(String(p.args.id)), p.args.content) as row, k (k)}
 												{#if row.kind === 'skip'}
 													<p class="px-1 text-ink-faint">⋯ {row.count} unchanged lines</p>
 												{:else}
@@ -389,9 +519,10 @@
 
 		<form onsubmit={send} class="flex items-end gap-2 border-t border-line-soft px-3 py-3">
 			<textarea
+				bind:this={inputEl}
 				bind:value={input}
 				rows="2"
-				placeholder="Discuss {entity.name}…"
+				placeholder="Ask about {effective.label}…"
 				onkeydown={(e) => {
 					if (e.key === 'Enter' && !e.shiftKey) {
 						e.preventDefault();

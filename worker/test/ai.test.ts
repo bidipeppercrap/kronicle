@@ -98,12 +98,17 @@ describe("ai chat basics", () => {
     expect(res.status).toBe(401);
   });
 
-  it("requires entity_id until Phase 4", async () => {
+  it("runs vault-wide when no entity_id is given", async () => {
+    mockDeepSeek(completion({ content: "Hello" }));
     const res = await req("/api/ai/chat", {
       method: "POST",
       body: JSON.stringify({ messages: [{ role: "user", content: "Hi" }] }),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/event-stream");
+
+    const evs = await events(res);
+    expect(evs.at(-1)?.event).toBe("done");
   });
 
   it("404s on an unknown entity", async () => {

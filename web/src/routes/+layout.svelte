@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import favicon from '$lib/assets/favicon.svg';
+	import AiChatPanel from '$lib/components/AiChatPanel.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import KronicleLogo from '$lib/components/KronicleLogo.svelte';
 	import { isMac, modKey } from '$lib/platform';
 	import { toasts } from '$lib/toast.svelte';
 	import {
+		CalendarClock,
 		CirclePlus,
 		Command as CommandIcon,
 		Compass,
@@ -15,6 +17,7 @@
 		Moon,
 		Search,
 		Settings,
+		Sparkles,
 		Sun
 	} from '@lucide/svelte';
 	import '../app.css';
@@ -22,6 +25,7 @@
 	let { children } = $props();
 
 	let paletteOpen = $state(false);
+	let chatOpen = $state(false);
 	let dark = $state(false);
 
 	$effect(() => {
@@ -37,6 +41,7 @@
 	const nav = [
 		{ label: 'Dashboard', href: '/', icon: LayoutDashboard },
 		{ label: 'Entities', href: '/entities', icon: Library },
+		{ label: 'Timeline', href: '/timeline', icon: CalendarClock },
 		{ label: 'Search', href: '/search', icon: Search },
 		{ label: 'Health', href: '/health', icon: HeartPulse },
 		{ label: 'Settings', href: '/settings', icon: Settings }
@@ -47,6 +52,15 @@
 		return page.url.pathname.startsWith(href);
 	}
 </script>
+
+<svelte:window
+	onkeydown={(e) => {
+		if ((e.metaKey || e.ctrlKey) && (e.key === 'j' || e.key === 'J')) {
+			e.preventDefault();
+			chatOpen = !chatOpen;
+		}
+	}}
+/>
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
@@ -102,6 +116,21 @@
 			</kbd>
 		</button>
 
+		<button
+			type="button"
+			onclick={() => (chatOpen = !chatOpen)}
+			class="mt-1 flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors
+			{chatOpen
+				? 'bg-accent-soft font-medium text-accent-ink'
+				: 'text-ink-muted hover:bg-surface hover:text-ink'}"
+		>
+			<Sparkles class="size-4" />
+			<span class="flex-1 text-left">Chat</span>
+			<kbd class="rounded border border-line bg-inset px-1.5 py-0.5 font-mono text-[0.625rem] text-ink-faint">
+				{modKey}J
+			</kbd>
+		</button>
+
 		<div class="mt-auto px-1">
 			<button
 				type="button"
@@ -148,6 +177,14 @@
 			</button>
 			<button
 				type="button"
+				onclick={() => (chatOpen = !chatOpen)}
+				class="rounded-lg p-2 {chatOpen ? 'bg-accent-soft text-accent-ink' : 'text-ink-muted'}"
+				aria-label="Chat"
+			>
+				<Sparkles class="size-4.5" />
+			</button>
+			<button
+				type="button"
 				onclick={toggleTheme}
 				class="rounded-lg p-2 text-ink-muted"
 				aria-label="Toggle theme"
@@ -163,6 +200,7 @@
 </div>
 
 <CommandPalette bind:open={paletteOpen} />
+<AiChatPanel bind:open={chatOpen} />
 
 <!-- Toasts -->
 <div class="pointer-events-none fixed right-4 bottom-4 z-50 flex flex-col gap-2">

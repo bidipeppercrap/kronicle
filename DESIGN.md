@@ -1,6 +1,6 @@
 # Kronicle — Design Document
 
-> Written 2026-06-09. Updated 2026-06-10: renamed to Kronicle, design review fixes (immutable IDs, status column, auth proxy, quick capture, build phases); added Web UI Design (typography + warm editorial theme); added writing-tool features (backlinks, editor spec, backups, AI ground rules, revisions, era validation, server-side slug rename); added AI chat (per-entity tool-calling chat, approval-gated writes); added Mobile UI Design (Material 3 warm theme + bundled OFL fonts); added Cloudflare Access in front of the web app + implementation defaults (monorepo layout, server-side slug generation, partial PUT, list envelope, revision endpoints); built the Phase 1 web app (`web/`) — component layer is Bits UI directly + hand-styled Tailwind rather than shadcn-svelte (decision 27); built per-entity AI chat from Phase 3 — Worker `POST /api/ai/chat` (DeepSeek tool loop, SSE, read tools capped at 8/turn, write tools intercepted as proposals) + web `AiChatPanel` on detail/edit views (diff and change-card proposals with Apply/Discard; in the editor, applied edits merge into the open buffer and ride autosave). Updated 2026-06-11: considered and rejected an app-level login (first-run root user + TOTP QR) — Cloudflare Access stays the sole web gate; added its setup runbook to the Auth section. Editor gains a Write/Peek toggle (Ctrl+E) that swaps the editing surface with rendered Markdown in place — a side-by-side preview pane was rejected for screen cost. Built revision history from Phase 3: `entity_revisions` table, snapshots coalesced to a 10-minute window, list/restore endpoints, History section in the editor sidebar. Added free-form tags (`metadata.tags` + `?tag=` filter + chips in editor/detail/list), per-type content templates (full create form + blank-editor affordance; stubs stay bare), family relationship types (`parent_of`, `sibling_of`, `married_to`), and a vault-health report (`GET /api/diagnostics` + web `/health`: broken wikilinks, orphans, stale stubs — computed at read time like backlinks). Moved the AI provider key into a D1 `settings` table editable from a new web Settings page (`GET/PUT /api/settings/ai`, masked hint only, env secret stays as fallback — decision 31); fixed chat self-applying its own proposals by blocking same-turn `apply_proposal` on both Worker and client (decision 32); documented that the AI provider is any OpenAI-compatible chat-completions endpoint (OpenAI, OpenRouter, Claude compat, Gemini compat, Ollama) configured entirely from Settings — DeepSeek is only the default.
+> Written 2026-06-09. Updated 2026-06-10: renamed to Kronicle, design review fixes (immutable IDs, status column, auth proxy, quick capture, build phases); added Web UI Design (typography + warm editorial theme); added writing-tool features (backlinks, editor spec, backups, AI ground rules, revisions, era validation, server-side slug rename); added AI chat (per-entity tool-calling chat, approval-gated writes); added Mobile UI Design (Material 3 warm theme + bundled OFL fonts); added Cloudflare Access in front of the web app + implementation defaults (monorepo layout, server-side slug generation, partial PUT, list envelope, revision endpoints); built the Phase 1 web app (`web/`) — component layer is Bits UI directly + hand-styled Tailwind rather than shadcn-svelte (decision 27); built per-entity AI chat from Phase 3 — Worker `POST /api/ai/chat` (DeepSeek tool loop, SSE, read tools capped at 8/turn, write tools intercepted as proposals) + web `AiChatPanel` on detail/edit views (diff and change-card proposals with Apply/Discard; in the editor, applied edits merge into the open buffer and ride autosave). Updated 2026-06-11: considered and rejected an app-level login (first-run root user + TOTP QR) — Cloudflare Access stays the sole web gate; added its setup runbook to the Auth section. Editor gains a Write/Peek toggle (Ctrl+E) that swaps the editing surface with rendered Markdown in place — a side-by-side preview pane was rejected for screen cost. Built revision history from Phase 3: `entity_revisions` table, snapshots coalesced to a 10-minute window, list/restore endpoints, History section in the editor sidebar. Added free-form tags (`metadata.tags` + `?tag=` filter + chips in editor/detail/list), per-type content templates (full create form + blank-editor affordance; stubs stay bare), family relationship types (`parent_of`, `sibling_of`, `married_to`), and a vault-health report (`GET /api/diagnostics` + web `/health`: broken wikilinks, orphans, stale stubs — computed at read time like backlinks). Moved the AI provider key into a D1 `settings` table editable from a new web Settings page (`GET/PUT /api/settings/ai`, masked hint only, env secret stays as fallback — decision 31); fixed chat self-applying its own proposals by blocking same-turn `apply_proposal` on both Worker and client (decision 32); documented that the AI provider is any OpenAI-compatible chat-completions endpoint (OpenAI, OpenRouter, Claude compat, Gemini compat, Ollama) configured entirely from Settings — DeepSeek is only the default. Updated 2026-06-13: hardened per-entity chat against the model narrating a change instead of calling a write tool — the system prompt now states that only a tool call renders a proposal card and that the `[Proposed …]` history lines are app records it must never type itself (the failure surfaced as a bare `[Proposed — awaiting approval]` message with no Apply button). Replaced the per-entity (Phase 3) + planned vault-wide (Phase 4) chats with one **route-aware chat** — a single shell-mounted panel whose context auto-follows the route (the entity you're viewing → a timeline era → the whole vault), `entity_id` auto-set each turn with a flattened `[Context: …]` marker when focus changes, the vault index always in the system prompt, and proposals applied via REST + refetch (merging into the open editor buffer only when they target the entity being edited); the worker dropped its `entity_id`-required guard and the web `AiChatPanel` moved out of the detail/editor pages into the shell (toggle + `⌘/Ctrl-J`) — decision 33. Built the **Timeline** (worker `GET /api/timeline?era=&status=` → events sorted by `metadata.order_index` ascending, position-less ones last, plus the era `lore` entities for band labels; web `/timeline` route + sidebar nav, a chronological feed that draws era headers over the stream and falls back to a flat stream when no eras exist). Clarified that `era` is **optional** — the timeline is chronological-first and eras are opt-in grouping bands, not a required section (the validator already passes an absent/null `era`); the AI chat system prompt now carries the event/timeline metadata conventions (`order_index`/`date`/`precision`/optional `era`, plus tags and per-type fields) so it proposes fields that fit instead of inventing them.
 > This is the reference for building the app.
 > When building, read this first. When the design changes, update this.
 
@@ -256,9 +256,9 @@ Events (`type: event`) are the backbone of the timeline:
 
 Relationships: `occurs_at` (location), `involves` (character), `causes` (event → event), `depicts` (story → event).
 
-The Timeline view renders all `canon` events sorted by `metadata.order_index`, grouped by `era`.
+The Timeline view renders all `canon` events sorted by `metadata.order_index` — one chronological stream, which is the whole point of a tool named Kronicle. An `era` is an optional grouping band, not a section the timeline requires: events that carry one collapse under that era's header as the stream reaches it, and events without one simply flow in the stream. Eras are opt-in — the timeline works with none and grows bands only as you name your world's ages.
 
-**Eras are entities, not free strings.** Each era is a `lore` entity with `metadata.category: "era"`. An event's or lore entry's `metadata.era` must match an existing era entity's slug — the API validates this on write. One typo would otherwise silently split the timeline grouping.
+**Eras are entities, not free strings.** Each era is a `lore` entity with `metadata.category: "era"`. `metadata.era` is *optional* on any event or lore entry; when present it must match an existing era entity's slug — the API validates this on write (an absent or null `era` always passes). So you can build the whole timeline on `order_index` alone and name your ages later — but the moment you reference one, a typo can't silently split the timeline grouping.
 
 ---
 
@@ -355,11 +355,11 @@ The provider is **any OpenAI-compatible chat-completions endpoint** — DeepSeek
 
 #### AI Chat
 
-A conversational layer over the same proxy: discuss an entity with the AI, and when you ask it to make a change, it proposes one — it never makes one.
+A conversational layer over the same proxy. **One route-aware chat** — a single panel mounted in the app shell whose context follows wherever you are: the entity you're viewing, the timeline era you're filtering, or the whole vault. When you ask it to make a change, it proposes one — it never makes one.
 
 **Stateless and ephemeral.** The client holds the conversation and sends the full message history every turn; closing the panel ends the conversation. No chat tables in D1 — the durable artifacts are the entities themselves (and their revisions), not the chatter that produced them.
 
-**Server-side tool loop.** The Worker injects the entity's context (same as the other AI endpoints), then runs DeepSeek with function calling:
+**Server-side tool loop.** The Worker builds a route-aware system prompt — a compact **vault index** (name/slug/type/status of every entity, so navigation is always one read tool away) plus, when the client sends an `entity_id`, the rich block for that entity (content, metadata, relationships, same as the other AI endpoints). It then runs DeepSeek with function calling:
 
 - **Read tools** the Worker executes freely, feeding results back to the model (capped at 8 calls per turn — bounds latency and DeepSeek spend):
 
@@ -391,15 +391,17 @@ Deliberately **not** in the tool set: `delete_entity`, media operations, slug or
 }
 ```
 
-`args` is the exact body for the corresponding REST call — Apply is a dumb dispatch through the normal save path (revision snapshot, era validation, all existing guards apply). The diff is rendered against the current buffer at Apply time, so an edit that landed mid-conversation is visible before committing.
+`args` is the exact body for the corresponding REST call — Apply is a dumb dispatch through the normal save path (revision snapshot, era validation, all existing guards apply) and the affected view refetches. The one exception: an `update_entity` that targets the entity currently open in the editor merges into the live buffer (riding autosave) instead of PUTting around it — a global panel mustn't clobber unsaved prose. The diff is rendered against that buffer when it's the open entity, otherwise against the entity's saved content (fetched on demand for off-screen targets), so an edit that landed mid-conversation is visible before committing.
 
 **SSE events:** `text` (assistant prose deltas), `reading` (read-tool activity, for a small "checking [[mira]]…" indicator), `proposal` (one complete proposal object), `done`.
 
-**History convention:** the wire format is plain `{role, content}` messages. The client flattens proposals and their outcomes into the stored assistant turn — `[Proposed p_8f2k: update Guli's content — applied]` / `…discarded]` — so the model knows on the next turn what landed and what didn't, without the Worker remembering anything.
+**History convention:** the wire format is plain `{role, content}` messages. The client flattens proposals and their outcomes into the stored assistant turn — `[Proposed p_8f2k: update Guli's content — applied]` / `…discarded]` — so the model knows on the next turn what landed and what didn't, without the Worker remembering anything. The system prompt defines these `[Proposed …]` lines as app-written records and forbids the model from typing them (or any "pending approval" prose) itself: only a write-tool call renders a card, so a model that narrates a proposal instead of calling the tool leaves the writer with an inert `[Proposed …]` message and no Apply button.
+
+A second app-written record rides the same channel: whenever the focus differs from the one last sent (including the conversation's first message), the client prepends a `[Context: now viewing Mira (character, draft)]` line to the user message. The `entity_id` on the request and the rich block in the system prompt already reflect the *current* focus; the marker is what keeps the transcript self-describing once the writer navigates, so "and her?" after moving from Guli to Mira resolves correctly instead of the model assuming earlier turns were about Mira too. Like `[Proposed …]`, the system prompt names these app records and forbids the model from typing them.
 
 **"Apply it" in chat:** one extra write-adjacent tool, `apply_proposal(id)`. Also never executed server-side — but when the client receives it, it applies the referenced *pending* proposal immediately, because the approval just came from the writer's own message. The button and the phrase are the same path; the model is only relaying consent. Revisions are the safety net if it ever relays wrong. **Same-turn guard:** consent must predate the proposal — a model that creates a proposal and calls `apply_proposal` on it in the same turn is relaying consent the writer never gave (they haven't seen the card yet). The Worker refuses the call with an error result instead of emitting the relay event, and the client independently ignores relays that reference a proposal born in the still-streaming turn. Without this, the writer sees only "applied" prose and never an interactive card.
 
-**Scope phasing:** with `entity_id`, the chat is anchored to one entity (Phase 3, in the editor/detail panel). Without it, the system prompt carries a vault index (names, slugs, types, statuses) and the model navigates by read tools — vault-wide chat, Phase 4.
+**Route-aware focus:** the contract stays `{ entity_id?, messages }`, but `entity_id` is now set by the *client* from the current route — the entity on a detail or editor page, absent on the timeline, graph, search, or dashboard — and may change between turns as the writer navigates. With it, the system prompt anchors to that entity (rich block); without it, the writer is browsing and the model leans on the always-present vault index and read tools. Either way the index is in the prompt, so a chat that starts on Guli can still reach across the whole vault. This supersedes the earlier split between a per-entity chat (Phase 3) and a separate vault-wide chat (Phase 4).
 
 ### Timeline, Search, Portability
 
@@ -442,15 +444,15 @@ All API requests include `Authorization: Bearer <static-token>`. The Worker vali
 |-------|---------|
 | `/` | Dashboard — **quick capture box** (name + optional note → stub), stubs awaiting triage, recent entities, quick stats |
 | `/entities` | List with type tabs, status filter, search, sort |
-| `/entities/[slug]` | Detail — metadata sidebar, rendered Markdown with wikilinks, media gallery, relationships, children, mentioned-in (backlinks), AI chat panel |
-| `/entities/[slug]/edit` | Editor — metadata form, Markdown editor, AI buttons, relationship picker, AI chat panel |
+| `/entities/[slug]` | Detail — metadata sidebar, rendered Markdown with wikilinks, media gallery, relationships, children, mentioned-in (backlinks) |
+| `/entities/[slug]/edit` | Editor — metadata form, Markdown editor, AI buttons, relationship picker |
 | `/entities/new?type=character` | Create (full form) — content pre-filled from the type's heading template (stubs stay bare) |
 | `/timeline` | Chronological feed grouped by era |
 | `/graph` | Force-directed relationship graph |
 | `/search` | Full-text across all entities |
 | `/health` | Vault health — broken wikilinks, orphans, stale stubs; the dashboard links here when the report is non-empty |
 | `/export` | Download zip / upload zip to import |
-| `/chat` | Vault-wide AI chat (Phase 4) — converse across the whole vault, proposals link to their entities |
+| _(shell overlay)_ | **Route-aware AI chat** — one panel toggled from any screen (sidebar/topbar, `⌘/Ctrl-J`); its context follows the current route (entity → era → whole vault). Not a route of its own |
 
 ### Mobile (Flutter)
 
@@ -458,13 +460,13 @@ All API requests include `Authorization: Bearer <static-token>`. The Worker vali
 |--------|---------|
 | **Home** | Dashboard — **quick capture** (one tap: name + note → stub), stubs to triage, recent, stats |
 | **Entity List** | Type tabs, status filter, search |
-| **Entity Detail** | Full read: metadata cards, Markdown with wikilinks, media, relationships, children, mentioned-in (backlinks), AI chat sheet |
-| **Entity Editor** | Form + Markdown field + AI buttons + relationship picker + AI chat sheet |
+| **Entity Detail** | Full read: metadata cards, Markdown with wikilinks, media, relationships, children, mentioned-in (backlinks) |
+| **Entity Editor** | Form + Markdown field + AI buttons + relationship picker |
 | **Timeline** | Vertical feed grouped by era, tap to detail |
 | **Graph** | Interactive graph, pinch-zoom, tap to navigate |
 | **Search** | Full-text grouped by type |
 | **Export** | Generate → share sheet |
-| **Chat** | Vault-wide AI chat (Phase 4) |
+| _(shell overlay)_ | **Route-aware AI chat** — one sheet reachable from any screen; its context follows the route (entity → era → whole vault) |
 
 Quick capture is the core loop of an ideas vault: getting an idea in must be one step, not a form with a type picker. Type can default to `lore` and be corrected at triage.
 
@@ -521,7 +523,8 @@ The most-used surface in the app:
 
 ### AI chat panel
 
-- Collapsible right sidebar on detail and edit views — consistent with "chrome recedes"; closed by default
+- A right-hand overlay toggled from the shell on any route (sidebar/topbar button, `⌘/Ctrl-J`) — consistent with "chrome recedes"; closed by default
+- A context chip in the header names the current focus (the entity, a timeline era, or "whole vault"); on an entity page a one-tap toggle detaches the chat to the whole vault and re-attaches on the next navigation
 - Proposals render inline in the transcript: unified diff blocks for content edits, change cards for structural ops (create entity, add/remove relationship), each with Apply / Discard
 - Applied cards lock with a status badge; discarded cards dim
 - Mobile: a bottom sheet instead of a sidebar; v1 shows a full-replace preview rather than an inline diff
@@ -550,8 +553,8 @@ The same three fonts, **bundled as APK assets** via `pubspec.yaml` (not the `goo
 |-------|-------|
 | **1** | Worker API (entities, relationships, media, auth) + SvelteKit web with full CRUD, quick capture, detail/editor, list, search. This alone is a usable vault |
 | **2** | Flutter app: quick capture, read/browse, basic editing. Timeline on both |
-| **3** | Graph views, export/import + weekly cron backups, AI endpoints + buttons, per-entity AI chat (web), revision history, media gallery polish |
-| **4** | Vault-wide AI chat (web `/chat` + Flutter chat screen), per-entity chat on Flutter |
+| **3** | Graph views, export/import + weekly cron backups, AI endpoints + buttons, the route-aware AI chat (web) — one shell panel covering both per-entity and vault-wide reach, revision history, media gallery polish |
+| **4** | Route-aware AI chat on Flutter (shell sheet, same context-follows-route behavior) |
 
 "Neither platform is restricted" is the end state, not the v1 bar — building two full clients simultaneously doubles the work before anything is usable.
 
@@ -642,6 +645,7 @@ This database holds years of creative work behind one static token — it gets d
 | 30 | Vault health (broken links, orphans, stale stubs) is computed at read time | Same philosophy as backlinks: one pass over the vault per request, nothing stored, nothing to invalidate. Renames can't dangle links, but typing `[[a-typo]]` can — this is where those surface |
 | 31 | AI provider config (key, API URL, model) lives in a D1 `settings` table, editable from the web Settings page; Worker env vars are fallbacks. Any OpenAI-compatible endpoint works — DeepSeek is just the default | Rotating a key or switching provider shouldn't require the Cloudflare console. The key never leaves the Worker — responses carry only a masked hint (`…1234`). D1 plaintext is acceptable: the same database holds the vault, behind the same single token |
 | 32 | `apply_proposal` may not target a proposal created in the same turn (enforced Worker-side and client-side) | Consent must predate the proposal — the writer can't approve a card they haven't seen. Otherwise the model self-applies and chat shows only "applied" prose, no interactive card |
+| 33 | AI chat is a single **route-aware** surface — one shell-mounted panel whose context auto-follows the route (entity → era → whole vault). `entity_id` is set by the client per turn (may change mid-conversation), the vault index is always in the system prompt, focus changes ride a flattened `[Context: …]` marker, and proposals apply via REST + refetch (merging into the open editor buffer only when they target the entity being edited). Supersedes the per-entity (Phase 3) / vault-wide (Phase 4) split | One persistent chat that follows you beats two modes you switch between and lose your thread across. The contract (`{ entity_id?, messages }`) and the generic read/write tools already supported it; route-awareness is a client concern (which `entity_id` to send) plus an always-on index server-side. A floating panel can't diff against an editor buffer it doesn't own, so applies are REST-first — the buffer merge is kept only where unsaved prose is at stake |
 
 ## Remaining (decide during implementation)
 
@@ -649,4 +653,4 @@ This database holds years of creative work behind one static token — it gets d
 |---|----------|---------|
 | 1 | Graph rendering on mobile | `CustomPainter` widget vs. WebView + D3. Prototype both, pick what performs |
 | 2 | Multi-device sync | Not in v1. Export/import covers the gap. Revisit when phone ↔ desktop real-time is needed |
-| 3 | Vault-wide chat specifics | Vault-index size vs. token budget; whether chat eventually subsumes the polish/expand buttons. Decide in Phase 4 with real usage |
+| 3 | Vault-index budget | The route-aware chat (decision 33) injects the index on every turn from day one, so its size vs. token budget is live now, not deferred — cap by recency for now (200 newest), trim or summarize if a large vault makes it bite. Also open: whether chat eventually subsumes the polish/expand buttons |

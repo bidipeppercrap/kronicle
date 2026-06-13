@@ -205,6 +205,90 @@ describe("era validation", () => {
   });
 });
 
+describe("timeline", () => {
+  it("returns events in chronological order and the era entities", async () => {
+    await create({ name: "Saga Era", type: "lore", metadata: { category: "era" } });
+    const third = await create({
+      name: "Third Event",
+      type: "event",
+      status: "canon",
+      metadata: { era: "saga-era", order_index: 300 },
+    });
+    const first = await create({
+      name: "First Event",
+      type: "event",
+      status: "canon",
+      metadata: { era: "saga-era", order_index: 100 },
+    });
+    const second = await create({
+      name: "Second Event",
+      type: "event",
+      status: "canon",
+      metadata: { era: "saga-era", order_index: 200 },
+    });
+
+    const res = await req("/api/timeline?era=saga-era&status=canon");
+    expect(res.status).toBe(200);
+    const body = await res.json<{ items: any[]; eras: any[] }>();
+    expect(body.items.map((e) => e.id)).toEqual([first.id, second.id, third.id]);
+    expect(body.eras.some((e) => e.slug === "saga-era")).toBe(true);
+  });
+
+  it("includes era-less events and sorts the position-less last", async () => {
+    await create({ name: "Dawn Era", type: "lore", metadata: { category: "era" } });
+    const dated = await create({
+      name: "Dated Dawn Event",
+      type: "event",
+      status: "canon",
+      metadata: { era: "dawn-era", order_index: 50 },
+    });
+    const undated = await create({
+      name: "Undated Dawn Event",
+      type: "event",
+      status: "canon",
+      metadata: { era: "dawn-era" },
+    });
+
+    const res = await req("/api/timeline?era=dawn-era");
+    const body = await res.json<{ items: any[] }>();
+    expect(body.items.map((e) => e.id)).toEqual([dated.id, undated.id]);
+  });
+
+  it("filters by status and excludes non-events tagged with the era", async () => {
+    await create({ name: "Mist Era", type: "lore", metadata: { category: "era" } });
+    await create({
+      name: "Canon Mist Event",
+      type: "event",
+      status: "canon",
+      metadata: { era: "mist-era", order_index: 10 },
+    });
+    await create({
+      name: "Draft Mist Event",
+      type: "event",
+      status: "draft",
+      metadata: { era: "mist-era", order_index: 20 },
+    });
+    // A lore entry can carry an era too, but the timeline is events only.
+    await create({
+      name: "Mist Lore",
+      type: "lore",
+      status: "canon",
+      metadata: { era: "mist-era" },
+    });
+
+    const canonOnly = await req("/api/timeline?era=mist-era&status=canon");
+    const canonBody = await canonOnly.json<{ items: any[] }>();
+    expect(canonBody.items.map((e) => e.name)).toEqual(["Canon Mist Event"]);
+
+    const all = await req("/api/timeline?era=mist-era");
+    const allBody = await all.json<{ items: any[] }>();
+    expect(allBody.items.map((e) => e.name)).toEqual([
+      "Canon Mist Event",
+      "Draft Mist Event",
+    ]);
+  });
+});
+
 describe("relationships", () => {
   it("creates, reads from both directions, rejects duplicates, deletes", async () => {
     const guli = await create({ name: "Guli", type: "character" });

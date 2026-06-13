@@ -296,24 +296,66 @@ async function relationshipLines(
   });
 }
 
+/**
+ * Compact one-line-per-entity index, always injected so the model can navigate
+ * the whole vault by slug/id even when the writer is anchored to one entity or
+ * looking at a non-entity view (DESIGN.md, route-aware chat). Capped at 200 by
+ * recency — personal scale keeps this well inside the token budget.
+ */
+async function vaultIndex(db: DrizzleD1Database): Promise<string> {
+  const rows = await db
+    .select()
+    .from(entities)
+    .orderBy(desc(entities.updated_at))
+    .limit(200)
+    .all();
+  if (!rows.length) return "(the vault is empty)";
+  return rows
+    .map((e) => `- ${e.name} [[${e.slug}]] (${e.type}, ${e.status})`)
+    .join("\n");
+}
+
+/**
+ * One route-aware system prompt. With an `entity` the writer is anchored to it
+ * (rich block) — without one they're browsing the vault. Either way the vault
+ * index rides along so navigation is always one read tool away (DESIGN.md).
+ */
 async function buildSystemPrompt(
   db: DrizzleD1Database,
-  entity: EntityRow
+  entity: EntityRow | null
 ): Promise<string> {
-  const relLines = await relationshipLines(db, entity);
-  return `You are the writing assistant inside Kronicle, a personal storybuilding vault. You are discussing one entity with its writer.
+  const rules = `You are the writing assistant inside Kronicle, a personal storybuilding vault.
 
 Rules:
 - Read the vault freely with get_entity, search_entities, and list_entities.
-- You cannot change anything yourself. update_entity, create_entity, add_relationship, and remove_relationship only create PROPOSALS — the writer sees each one with Apply/Discard buttons. Never claim a change has been made; say it is proposed and awaiting approval.
-- Earlier proposals appear in the transcript as "[Proposed p_xxx: … — applied/discarded/pending]". Only call apply_proposal when the writer's latest message explicitly asks to apply a pending one. Never call apply_proposal for a proposal you created in this same turn — the writer hasn't seen it yet.
+- You cannot change anything yourself. To propose a change you MUST call update_entity, create_entity, add_relationship, or remove_relationship — a tool call is the ONLY thing that renders the interactive proposal card with Apply/Discard buttons. Describing the edit in prose, writing a "[Proposed …]" line, or claiming a change is pending or approved renders NO card: the writer is left with a message and nothing to act on. So never narrate a change in place of calling the tool, and never claim one is already made. Make the tool call; a short sentence like "Proposed it — apply when you're ready" is all the prose the card needs.
+- The "[Proposed p_xxx: … — applied/discarded/pending]" lines in the transcript are records the app writes after you call a tool. They are never something you type yourself — they only tell you what landed on earlier turns. Only call apply_proposal when the writer's latest message explicitly asks to apply a pending one, and never for a proposal you created this same turn — the writer hasn't seen it yet.
+- The "[Context: …]" lines in the transcript are records the app writes when the writer navigates to a different entity or view. They tell you what the writer is currently looking at; treat the most recent one as the live focus, and never type one yourself.
 - If a write tool returns an error, the proposal was NOT created. Say so and ask how to proceed; never paste the rewritten content into chat as a substitute.
 - update_entity content must be the full replacement Markdown, not a fragment.
 - Prose references other entities as [[slug]] wikilinks (or [[slug|display text]]). Keep existing wikilinks intact unless the change is about them.
 - New entities always land as drafts; promoting to canon is the writer's call.
-- Match the writer's tone and the vault's voice; be concrete and brief in chat.
+- Vault metadata conventions, so you propose fields that fit instead of inventing your own (metadata is freeform JSON; these are the shapes the app and timeline already expect):
+  - event: "order_index" (integer — the timeline sorts on this, so it is the field that places an event in time; leave gaps like 1000, 2000 so events can be inserted between later), "date" (free-form display string, e.g. "Year 500 AC"), "precision" ("exact" or "approximate"), and an optional "era".
+  - "era" (on an event or lore entry) is OPTIONAL and, when set, must be the slug of an existing lore entity whose metadata.category is "era" — never invent an era slug; if no era entity fits, omit the field. The timeline is chronological first (order_index); eras are only optional grouping bands, so an event needs no era to appear on it.
+  - tags live in metadata.tags (array of strings); location uses location_type/climate/population; ability uses principle/category/range.
+- Match the writer's tone and the vault's voice; be concrete and brief in chat.`;
 
-The entity under discussion:
+  const index = await vaultIndex(db);
+
+  if (!entity) {
+    return `${rules}
+
+The writer is browsing the whole vault — no single entity is in focus. Open anything by slug or id with get_entity, or find things with search_entities and list_entities.
+
+Vault index (name [[slug]] (type, status)):
+${index}`;
+  }
+
+  const relLines = await relationshipLines(db, entity);
+  return `${rules}
+
+The writer is currently looking at this entity:
 
 name: ${entity.name}
 slug: ${entity.slug}
@@ -327,7 +369,10 @@ relationships:
 ${relLines.length ? relLines.join("\n") : "(none)"}
 
 content (Markdown):
-${entity.content || "(blank — nothing written yet)"}`;
+${entity.content || "(blank — nothing written yet)"}
+
+The rest of the vault, for reference (name [[slug]] (type, status)):
+${index}`;
 }
 
 // ——— Tool execution ———
@@ -527,13 +572,9 @@ app.post("/ai/chat", async (c) => {
     });
   }
   const body = await parseJson(c, chatSchema);
-  if (!body.entity_id) {
-    throw new HTTPException(400, {
-      message: "entity_id is required — vault-wide chat lands in Phase 4",
-    });
-  }
-
-  const entity = await requireEntity(db, body.entity_id);
+  // entity_id is the current route's entity (auto-set by the client) and may be
+  // absent on non-entity views — the chat is route-aware, not entity-bound.
+  const entity = body.entity_id ? await requireEntity(db, body.entity_id) : null;
   const system = await buildSystemPrompt(db, entity);
   const messages: ChatMessage[] = [
     { role: "system", content: system },

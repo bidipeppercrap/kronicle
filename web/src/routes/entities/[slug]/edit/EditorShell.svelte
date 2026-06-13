@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { beforeNavigate, goto } from '$app/navigation';
-	import AiChatPanel from '$lib/components/AiChatPanel.svelte';
+	import { editorBridge } from '$lib/editorBridge.svelte';
 	import EntityPicker, { type PickedEntity } from '$lib/components/EntityPicker.svelte';
 	import MarkdownEditor from '$lib/components/MarkdownEditor.svelte';
 	import RevisionHistory from '$lib/components/RevisionHistory.svelte';
@@ -39,7 +39,6 @@
 		LoaderCircle,
 		PenLine,
 		Plus,
-		Sparkles,
 		Trash2,
 		X
 	} from '@lucide/svelte';
@@ -415,9 +414,6 @@
 	);
 
 	// ——— AI chat ———
-	let chatOpen = $state(false);
-	const chatCurrent = $derived({ content, summary });
-
 	/**
 	 * Applied update_entity proposals for this entity merge into the open
 	 * buffer and ride the normal autosave — a direct PUT would race it.
@@ -439,6 +435,17 @@
 				}));
 		}
 	}
+
+	// The chat panel lives in the app shell now (DESIGN.md, route-aware chat).
+	// Publish this editor's buffer and apply hook so a chat edit to the open
+	// entity merges in instead of clobbering unsaved prose with a PUT.
+	onMount(() => {
+		editorBridge.open(entity.id, applyAiUpdate);
+		return () => editorBridge.close(entity.id);
+	});
+	$effect(() => {
+		editorBridge.setCurrent({ content, summary });
+	});
 </script>
 
 <svelte:head>
@@ -506,14 +513,6 @@
 			{:else}
 				<Eye class="size-4" />
 			{/if}
-		</button>
-		<button
-			type="button"
-			onclick={() => (chatOpen = !chatOpen)}
-			class="flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-sm text-ink-muted transition-colors hover:border-accent hover:text-accent-ink"
-			aria-label="AI chat"
-		>
-			<Sparkles class="size-4" />
 		</button>
 		<button
 			type="button"
@@ -919,9 +918,3 @@
 	</div>
 </div>
 
-<AiChatPanel
-	entity={{ id: entity.id, name: entity.name }}
-	current={chatCurrent}
-	bind:open={chatOpen}
-	onLocalUpdate={applyAiUpdate}
-/>

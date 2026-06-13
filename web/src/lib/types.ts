@@ -127,6 +127,19 @@ export interface ListResponse<T> {
 	offset: number;
 }
 
+/** Era reference rows in the timeline response — used to label era bands. */
+export interface EraRef {
+	id: string;
+	slug: string;
+	name: string;
+}
+
+/** GET /api/timeline — events sorted chronologically, plus the era entities. */
+export interface TimelineResponse {
+	items: Entity[];
+	eras: EraRef[];
+}
+
 /** Human labels for relationship verbs, read from the source side. */
 export const RELATIONSHIP_LABELS: Record<RelationshipType, string> = {
 	born_in: 'born in',
