@@ -1,0 +1,46 @@
+name: kronicle
+description: "Kronicle — personal storybuilding ideas vault (Android client)."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  # Networking — the only runtime dependency beyond Flutter + the bundled fonts.
+  http: ^1.2.2
+  # Rendering Markdown prose. DESIGN.md names flutter_markdown for the body.
+  flutter_markdown: ^0.7.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  # Bundled as APK assets (DESIGN.md): the same three SIL OFL fonts as web,
+  # no google_fonts package, no Google requests at runtime. Literata and Inter
+  # are variable fonts (one file, Flutter interpolates weight); iA Writer
+  # Quattro ships static cuts.
+  fonts:
+    - family: Literata
+      fonts:
+        - asset: assets/fonts/Literata.ttf
+        - asset: assets/fonts/Literata-Italic.ttf
+          style: italic
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter.ttf
+    - family: iA Writer Quattro
+      fonts:
+        - asset: assets/fonts/iAWriterQuattroS-Regular.ttf
+        - asset: assets/fonts/iAWriterQuattroS-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/iAWriterQuattroS-Italic.ttf
+          style: italic
