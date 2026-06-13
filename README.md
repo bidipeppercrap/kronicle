@@ -71,7 +71,46 @@ Open http://localhost:5173. The dashboard's quick capture box is the fastest way
 | `npm run db:generate` | `worker/` | Generate a new Drizzle migration after editing `src/db/schema.ts` |
 | `npm run db:migrate:remote` | `worker/` | Apply migrations to the production D1 database |
 
-## Deployment notes
+## Deployment
 
-- Worker secrets in production are set with `wrangler secret put API_TOKEN` (and `DEEPSEEK_API_KEY`); the placeholder `database_id` in `worker/wrangler.jsonc` must be replaced after `wrangler d1 create kronicle`.
-- The deployed web app is protected by **Cloudflare Access** (email allowlist) — the setup runbook is in DESIGN.md's Auth section. Don't share the public URL before that's configured.
+Two Cloudflare Workers — deploy the API first, then the web app.
+
+### 1. Worker API (`worker/`)
+
+One-time setup:
+
+```sh
+cd worker
+wrangler d1 create kronicle          # paste the returned id into worker/wrangler.jsonc (replaces the 0000… placeholder)
+wrangler r2 bucket create kronicle-media
+wrangler secret put API_TOKEN        # your real production bearer token
+wrangler secret put DEEPSEEK_API_KEY # only if you use the /api/ai/* endpoints
+```
+
+Each deploy:
+
+```sh
+npm run db:migrate:remote            # apply migrations to the production D1
+npm run deploy                       # wrangler deploy → kronicle-api.<account>.workers.dev
+```
+
+### 2. Web app (`web/`)
+
+One-time setup — edit `web/wrangler.jsonc` and replace `<account>` in the `API_URL` var with the deployed Worker API URL from step 1, then set the token (it's a secret, so it lives outside `wrangler.jsonc`):
+
+```sh
+cd web
+wrangler secret put API_TOKEN        # must match worker/'s API_TOKEN
+```
+
+Each deploy:
+
+```sh
+npm run deploy                       # vite build + wrangler deploy → kronicle.<account>.workers.dev
+```
+
+`API_URL` and `API_TOKEN` are read server-side only (`$env/dynamic/private`); the token never reaches the browser.
+
+### 3. Lock down the web app — Cloudflare Access (required)
+
+The server-route proxy attaches the API token for *any* visitor to the public URL, so the deployed web app **must** sit behind **Cloudflare Access** (Zero Trust free tier, email allowlist) before you share the URL. It's dashboard-only, zero code — the one-time runbook is in DESIGN.md's Auth section.
