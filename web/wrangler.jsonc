@@ -16,7 +16,10 @@
   "vars": {
     // Non-secret: the deployed Worker API. Replace <account> after deploying worker/.
     "API_URL": "https://kronicle-api.<account>.workers.dev"
-  }
+  },
+  "routes": [
+    { "pattern": "kronicle.spelltest.bidipeppercrap.com", "custom_domain": true }
+  ]
   // API_TOKEN is a secret — set it with `wrangler secret put API_TOKEN` (must match worker/'s API_TOKEN).
   // Read server-side only via $env/dynamic/private; never shipped to the browser.
 }
