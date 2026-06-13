@@ -2,13 +2,13 @@
 	import { page } from '$app/state';
 	import favicon from '$lib/assets/favicon.svg';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
+	import KronicleLogo from '$lib/components/KronicleLogo.svelte';
 	import { isMac, modKey } from '$lib/platform';
 	import { toasts } from '$lib/toast.svelte';
 	import {
 		CirclePlus,
 		Command as CommandIcon,
 		Compass,
-		Feather,
 		HeartPulse,
 		LayoutDashboard,
 		Library,
@@ -59,7 +59,7 @@
 		class="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-line-soft bg-inset/50 px-3 py-5 md:flex"
 	>
 		<a href="/" class="mb-7 flex items-center gap-2.5 px-2">
-			<Feather class="size-5 text-accent" />
+			<KronicleLogo class="size-5 text-accent" />
 			<span class="font-prose text-xl font-semibold tracking-tight text-ink">Kronicle</span>
 		</a>
 
@@ -124,7 +124,7 @@
 			class="sticky top-0 z-40 flex items-center gap-1 border-b border-line-soft bg-paper/90 px-3 py-2.5 backdrop-blur md:hidden"
 		>
 			<a href="/" class="mr-auto flex items-center gap-2 px-1">
-				<Feather class="size-4.5 text-accent" />
+				<KronicleLogo class="size-4.5 text-accent" />
 				<span class="font-prose text-lg font-semibold text-ink">Kronicle</span>
 			</a>
 			{#each nav as item (item.href)}

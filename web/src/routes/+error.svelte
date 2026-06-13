@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { Feather } from '@lucide/svelte';
+	import KronicleLogo from '$lib/components/KronicleLogo.svelte';
 </script>
 
 <div class="flex min-h-[60vh] flex-col items-center justify-center px-4 text-center">
-	<Feather class="mb-4 size-8 text-ink-faint" />
+	<KronicleLogo class="mb-4 size-8 text-ink-faint" />
 	<h1 class="font-prose text-3xl font-semibold text-ink">
 		{page.status === 404 ? 'This page was never written' : 'Something tore the page'}
 	</h1>
