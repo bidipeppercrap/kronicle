@@ -14,8 +14,8 @@
     "enabled": true
   },
   "vars": {
-    // Non-secret: the deployed Worker API. Replace <account> after deploying worker/.
-    "API_URL": "https://kronicle-api.<account>.workers.dev"
+    // Non-secret: the deployed Worker API, reachable at its custom domain (see worker/wrangler.jsonc).
+    "API_URL": "https://api.kronicle.spelltest.bidipeppercrap.com"
   },
   "routes": [
     { "pattern": "kronicle.spelltest.bidipeppercrap.com", "custom_domain": true }

@@ -17,6 +17,11 @@
 			"binding": "MEDIA",
 			"bucket_name": "kronicle-media"
 		}
+	],
+	// Custom domain so the web worker can reach this API at a stable hostname.
+	// Cloudflare provisions the route + TLS cert on first `wrangler deploy`.
+	"routes": [
+		{ "pattern": "api.kronicle.spelltest.bidipeppercrap.com", "custom_domain": true }
 	]
 	// Secrets (wrangler secret put / .dev.vars locally): API_TOKEN, DEEPSEEK_API_KEY
 }
