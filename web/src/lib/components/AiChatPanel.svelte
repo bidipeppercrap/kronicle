@@ -8,6 +8,7 @@
 	import {
 		Check,
 		CircleAlert,
+		Eraser,
 		LoaderCircle,
 		ScanSearch,
 		SendHorizontal,
@@ -144,6 +145,26 @@
 	});
 
 	/**
+	 * Strip the app-record markers ([Proposed …], [Context: …]) from assistant
+	 * text. The client injects these into wire history as bookkeeping; the model
+	 * is told never to type them, but sometimes it parrots a "[Proposed … —
+	 * applied]" line as prose instead of calling a write tool — faking a proposal
+	 * with no Apply button (and a "change" that never happened). Scrubbing them
+	 * from both the rendered bubble and the history sent back keeps the fake off
+	 * screen and stops it reinforcing itself next turn. Real proposals arrive as
+	 * cards, so nothing real is lost. Only ever applied to assistant text — the
+	 * [Context: …] prefix on user turns is a deliberate, separate marker.
+	 */
+	function visibleText(raw: string): string {
+		return raw
+			.replace(/\[(?:Proposed|Context)\b[^\]]*\]/g, '')
+			// A marker still mid-stream (closing bracket not in yet) — drop the tail.
+			.replace(/\[(?:Proposed|Context)\b[^\]]*$/g, '')
+			.replace(/\n{3,}/g, '\n\n')
+			.trim();
+	}
+
+	/**
 	 * Wire-format history: plain {role, content}. Proposals and their outcomes,
 	 * and the [Context: …] markers, are flattened into the turns so the model
 	 * knows next turn what landed and where the writer is looking — the server
@@ -157,7 +178,7 @@
 				msgs.push({ role: 'user', content });
 				continue;
 			}
-			let content = t.text;
+			let content = visibleText(t.text);
 			for (const p of t.proposals) {
 				const outcome =
 					p.status === 'applied' ? 'applied' : p.status === 'discarded' ? 'discarded' : 'pending';
@@ -224,6 +245,21 @@
 		} else if (event === 'error') {
 			toast(String(data.message ?? 'AI chat failed'), 'err');
 		}
+	}
+
+	/**
+	 * Wipe the conversation back to a blank slate. The panel persists across
+	 * open/close (it stays mounted in the shell), so this is the one-tap way to
+	 * start over — transcript, the context markers, fetched baselines, and any
+	 * manual whole-vault detach all reset. Nothing is ever written server-side.
+	 */
+	function clearChat() {
+		turns = [];
+		lastSentMarker = null;
+		baselines = {};
+		detached = false;
+		input = '';
+		inputEl?.focus();
 	}
 
 	async function send(e?: Event) {
@@ -370,6 +406,18 @@
 					{/if}
 				</p>
 			</div>
+			{#if turns.length}
+				<button
+					type="button"
+					onclick={clearChat}
+					disabled={busy}
+					class="rounded-lg p-1.5 text-ink-faint transition-colors hover:bg-surface hover:text-ink disabled:opacity-40"
+					aria-label="Clear chat"
+					title="Clear chat"
+				>
+					<Eraser class="size-4" />
+				</button>
+			{/if}
 			<button
 				type="button"
 				onclick={() => (open = false)}
@@ -384,11 +432,12 @@
 			{#if !turns.length}
 				<p class="m-auto max-w-[28ch] text-center text-sm text-ink-faint italic">
 					Chatting about {effective.label}. Ask for a rewrite and you'll get a diff to apply or
-					discard — closing the panel ends the conversation.
+					discard — clear it any time to start over.
 				</p>
 			{/if}
 
 			{#each turns as turn, i (i)}
+				{@const body = visibleText(turn.text)}
 				{#if turn.role === 'user'}
 					<div
 						class="max-w-[85%] self-end rounded-xl bg-accent-soft px-3 py-2 text-sm whitespace-pre-wrap text-ink"
@@ -403,10 +452,10 @@
 								{note}
 							</p>
 						{/each}
-						{#if turn.text}
+						{#if body}
 							<div class="prose-book !max-w-none text-[0.9rem]">
 								<!-- eslint-disable-next-line svelte/no-at-html-tags — own vault's AI output -->
-								{@html renderMarkdown(turn.text)}
+								{@html renderMarkdown(body)}
 							</div>
 						{/if}
 

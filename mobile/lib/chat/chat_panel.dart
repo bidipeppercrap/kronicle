@@ -175,6 +175,12 @@ class _ChatPanelState extends State<ChatPanel> {
             ),
           ),
           const Spacer(),
+          if (c.turns.isNotEmpty)
+            IconButton(
+              tooltip: 'Clear chat',
+              icon: const Icon(Icons.delete_sweep_outlined, size: 20),
+              onPressed: c.busy ? null : c.clear,
+            ),
           IconButton(
             tooltip: 'Close',
             icon: const Icon(Icons.close, size: 20),
@@ -194,7 +200,7 @@ class _ChatPanelState extends State<ChatPanel> {
           padding: const EdgeInsets.all(28),
           child: Text(
             'Chatting about ${c.contextLabel}. Ask for a rewrite and you\'ll get '
-            'a diff to apply or discard — closing the panel ends the conversation.',
+            'a diff to apply or discard — clear it any time to start over.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontFamily: KronicleTheme.ui,
@@ -259,6 +265,7 @@ class _ChatPanelState extends State<ChatPanel> {
   }
 
   Widget _assistantTurn(BuildContext context, KronicleColors colors, Turn t) {
+    final body = visibleChatText(t.text);
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Column(
@@ -282,9 +289,9 @@ class _ChatPanelState extends State<ChatPanel> {
                 ],
               ),
             ),
-          if (t.text.isNotEmpty)
+          if (body.isNotEmpty)
             MarkdownBody(
-              data: t.text,
+              data: body,
               styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
                 p: TextStyle(
                   fontFamily: KronicleTheme.ui,

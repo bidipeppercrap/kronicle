@@ -5,6 +5,25 @@ import 'package:flutter/widgets.dart';
 import '../api/api_client.dart';
 import '../state/chat_context.dart';
 
+final _chatMarker = RegExp(r'\[(?:Proposed|Context)\b[^\]]*\]');
+// A marker still mid-stream (closing bracket not in yet) — its dangling tail.
+final _chatMarkerTail = RegExp(r'\[(?:Proposed|Context)\b[^\]]*$');
+
+/// Strip the app-record markers ([Proposed …], [Context: …]) from assistant
+/// text. The client injects these into wire history as bookkeeping; the model is
+/// told never to type them, but sometimes it parrots a "[Proposed … — applied]"
+/// line as prose instead of calling a write tool — faking a proposal with no
+/// Apply button (and a "change" that never happened). Scrubbing them from both
+/// the rendered bubble and the history sent back keeps the fake off screen and
+/// stops it reinforcing itself next turn. Real proposals arrive as cards, so
+/// nothing real is lost. Only ever applied to assistant text — the [Context: …]
+/// prefix on user turns is a deliberate, separate marker.
+String visibleChatText(String raw) => raw
+    .replaceAll(_chatMarker, '')
+    .replaceAll(_chatMarkerTail, '')
+    .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+    .trim();
+
 enum ProposalStatus { pending, applying, applied, discarded, failed }
 
 class Proposal {
@@ -94,6 +113,18 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Wipe the conversation back to a blank slate. The controller is a singleton,
+  /// so the conversation survives closing the panel — this is the one-tap way to
+  /// start over: transcript, the context markers, fetched baselines, and any
+  /// manual whole-vault detach all reset. Nothing is ever written server-side.
+  void clear() {
+    turns.clear();
+    baselines.clear();
+    _lastSentMarker = null;
+    detached = false;
+    notifyListeners();
+  }
+
   bool get hasEntityFocus => ChatContextModel.instance.current != null;
 
   _Effective get _effective {
@@ -142,7 +173,7 @@ class ChatController extends ChangeNotifier {
         msgs.add({'role': 'user', 'content': content});
         continue;
       }
-      var content = t.text;
+      var content = visibleChatText(t.text);
       for (final p in t.proposals) {
         final outcome = p.status == ProposalStatus.applied
             ? 'applied'
