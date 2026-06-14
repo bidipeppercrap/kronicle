@@ -18,6 +18,11 @@ class ChatHost extends StatefulWidget {
 class _ChatHostState extends State<ChatHost> {
   final _c = ChatController.instance;
   static const _bubbleSize = 56.0;
+  static const _margin = 16.0;
+
+  // True while a drag is in flight — disables the snap animation so the bubble
+  // tracks the finger, then re-enables it for the fly-to-edge release.
+  bool _dragging = false;
 
   @override
   void initState() {
@@ -67,18 +72,38 @@ class _ChatHostState extends State<ChatHost> {
   Widget _bubble(Size size, EdgeInsets pad) {
     final scheme = Theme.of(context).colorScheme;
     final offset = _c.bubbleOffset!;
-    return Positioned(
+    final minY = pad.top + 8;
+    final maxY = size.height - _bubbleSize - 8;
+    return AnimatedPositioned(
+      // No animation while dragging (the finger drives it); a quick eased glide
+      // for the fly-to-edge snap on release, like the Messenger bubble.
+      duration: _dragging ? Duration.zero : const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
       left: offset.dx,
       top: offset.dy,
       child: GestureDetector(
         onTap: _c.toggle,
+        onPanStart: (_) => setState(() => _dragging = true),
         onPanUpdate: (d) {
-          final next = offset + d.delta;
+          // Accumulate from the *live* offset, not the build-time capture, so a
+          // fast flick tracks the finger 1:1 instead of dropping deltas (and
+          // appearing to lag) when several move events land in one frame.
+          final next = _c.bubbleOffset! + d.delta;
           _c.bubbleOffset = Offset(
             next.dx.clamp(8.0, size.width - _bubbleSize - 8),
-            next.dy.clamp(pad.top + 8, size.height - _bubbleSize - 8),
+            next.dy.clamp(minY, maxY),
           );
           setState(() {});
+        },
+        onPanEnd: (_) {
+          // Anchor to whichever side edge the bubble's centre is nearer.
+          final center = _c.bubbleOffset!.dx + _bubbleSize / 2;
+          final toRight = center >= size.width / 2;
+          _c.bubbleOffset = Offset(
+            toRight ? size.width - _bubbleSize - _margin : _margin,
+            _c.bubbleOffset!.dy.clamp(minY, maxY),
+          );
+          setState(() => _dragging = false);
         },
         child: Container(
           width: _bubbleSize,
@@ -86,13 +111,13 @@ class _ChatHostState extends State<ChatHost> {
           decoration: BoxDecoration(
             color: scheme.primary,
             shape: BoxShape.circle,
-            // A subtle shadow — this is the one floating affordance that keeps
+            // A soft shadow — this is the one floating affordance that keeps
             // "mostly flat" honest (DESIGN.md decision 35).
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.18),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
+                color: Colors.black.withValues(alpha: 0.28),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
               ),
             ],
           ),

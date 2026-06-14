@@ -128,10 +128,11 @@ class KronicleTheme {
         ),
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
-        elevation: 0,
-        focusElevation: 0,
-        hoverElevation: 0,
-        highlightElevation: 0,
+        // A little lift so the FAB reads as floating, matching the chat bubble.
+        elevation: 4,
+        focusElevation: 4,
+        hoverElevation: 6,
+        highlightElevation: 8,
         backgroundColor: accent,
         foregroundColor: isLight ? _paper : _study,
       ),
