@@ -3,6 +3,7 @@ import {
 	FileText,
 	MapPin,
 	Milestone,
+	PawPrint,
 	ScrollText,
 	Shield,
 	Sparkles,
@@ -13,6 +14,7 @@ import type { EntityType, Status } from './types';
 
 export const TYPE_ICONS: Record<EntityType, typeof IconType> = {
 	character: User,
+	creature: PawPrint,
 	location: MapPin,
 	faction: Shield,
 	lore: ScrollText,
@@ -40,6 +42,7 @@ export const STATUS_BADGE: Record<Status, string> = {
 /** Conventional metadata fields per type (DESIGN.md) — offered as quick-add chips. */
 export const METADATA_SUGGESTIONS: Record<EntityType, string[]> = {
 	character: ['gender', 'species', 'age', 'is_npc'],
+	creature: ['category', 'habitat', 'diet', 'danger'],
 	location: ['location_type', 'climate', 'population'],
 	faction: ['category', 'member_count'],
 	lore: ['category', 'era'],
@@ -57,6 +60,9 @@ export const METADATA_SUGGESTIONS: Record<EntityType, string[]> = {
  */
 export const CONTENT_TEMPLATES: Record<EntityType, string> = {
 	character: ['## Appearance', '## Personality', '## Backstory', '## Abilities & Principle']
+		.join('\n\n\n')
+		.concat('\n'),
+	creature: ['## Description', '## Habitat & Range', '## Behavior', '## Ecology & Uses']
 		.join('\n\n\n')
 		.concat('\n'),
 	location: ['## Geography', '## Notable Places', '## Residents & Factions', '## History']

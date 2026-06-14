@@ -338,7 +338,7 @@ Rules:
 - Vault metadata conventions, so you propose fields that fit instead of inventing your own (metadata is freeform JSON; these are the shapes the app and timeline already expect):
   - event: "order_index" (integer — the timeline sorts on this, so it is the field that places an event in time; leave gaps like 1000, 2000 so events can be inserted between later), "date" (free-form display string, e.g. "Year 500 AC"), "precision" ("exact" or "approximate"), and an optional "era".
   - "era" (on an event or lore entry) is OPTIONAL and, when set, must be the slug of an existing lore entity whose metadata.category is "era" — never invent an era slug; if no era entity fits, omit the field. The timeline is chronological first (order_index); eras are only optional grouping bands, so an event needs no era to appear on it.
-  - tags live in metadata.tags (array of strings); location uses location_type/climate/population; ability uses principle/category/range.
+  - tags live in metadata.tags (array of strings); location uses location_type/climate/population; ability uses principle/category/range; creature (flora & fauna) uses category ("flora" or "fauna")/habitat/diet/danger.
 - Match the writer's tone and the vault's voice; be concrete and brief in chat.`;
 
   const index = await vaultIndex(db);

@@ -1,5 +1,6 @@
 export const ENTITY_TYPES = [
 	'character',
+	'creature',
 	'location',
 	'faction',
 	'lore',
@@ -186,6 +187,7 @@ export const RELATIONSHIP_INVERSE_LABELS: Record<RelationshipType, string> = {
 
 export const TYPE_LABELS: Record<EntityType, string> = {
 	character: 'Character',
+	creature: 'Creature',
 	location: 'Location',
 	faction: 'Faction',
 	lore: 'Lore',
@@ -197,6 +199,7 @@ export const TYPE_LABELS: Record<EntityType, string> = {
 
 export const TYPE_PLURALS: Record<EntityType, string> = {
 	character: 'Characters',
+	creature: 'Creatures',
 	location: 'Locations',
 	faction: 'Factions',
 	lore: 'Lore',

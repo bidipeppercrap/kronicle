@@ -5,6 +5,7 @@ library;
 
 const entityTypes = <String>[
   'character',
+  'creature',
   'location',
   'faction',
   'lore',
@@ -41,6 +42,7 @@ const relationshipTypes = <String>[
 
 const typeLabels = <String, String>{
   'character': 'Character',
+  'creature': 'Creature',
   'location': 'Location',
   'faction': 'Faction',
   'lore': 'Lore',
@@ -52,6 +54,7 @@ const typeLabels = <String, String>{
 
 const typePlurals = <String, String>{
   'character': 'Characters',
+  'creature': 'Creatures',
   'location': 'Locations',
   'faction': 'Factions',
   'lore': 'Lore',

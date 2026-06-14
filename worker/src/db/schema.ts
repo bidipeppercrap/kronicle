@@ -10,6 +10,7 @@ import {
 
 export const ENTITY_TYPES = [
   "character",
+  "creature",
   "location",
   "faction",
   "lore",

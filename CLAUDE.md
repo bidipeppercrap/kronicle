@@ -18,7 +18,7 @@ Two clients, one backend:
 
 These are settled (see "Resolved Decisions" in DESIGN.md — 20 numbered entries with rationale):
 
-- **Unified data model**: one `entities` table (8 types: character, location, faction, lore, story, chapter, event, ability) + one `relationships` table. Type-specific fields live in a `metadata` JSON column; `status` (stub/draft/canon/rejected) is a real indexed column. `parent_id` enables nesting; deleting an entity with children is blocked.
+- **Unified data model**: one `entities` table (9 types: character, creature, location, faction, lore, story, chapter, event, ability) + one `relationships` table. Type-specific fields live in a `metadata` JSON column; `status` (stub/draft/canon/rejected) is a real indexed column. `parent_id` enables nesting; deleting an entity with children is blocked.
 - **Immutable opaque IDs + renameable slugs.** Slug renames atomically rewrite `[[wikilinks]]` across all content server-side.
 - **Wikilinks `[[slug]]` are render-only** — they never create relationship rows. Backlinks are computed at read time via `LIKE`.
 - **Status loop is the product**: capture → stub → draft → canon/rejected. Quick capture (name → stub) must stay one step.
