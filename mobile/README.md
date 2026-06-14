@@ -12,24 +12,35 @@ timeline, search) and Phase 4 (the route-aware AI chat). See `../DESIGN.md`.
 
 ## Configuration
 
-The app embeds the bearer token — an accepted risk for a personal device
-(DESIGN.md, Auth). There is no in-app login; Cloudflare Access gates the *web*
-app, not the phone. Supply the API URL and token with `--dart-define`:
+The server URL and bearer token are entered **in-app** (Settings) and stored
+with `flutter_secure_storage` — the token is encrypted at rest behind the
+Android Keystore, and **the APK embeds no secret**, so the build can be
+distributed. On a fresh install the app opens onto a connect screen; tap the
+gear on Home to change it later. There is still no in-app login: each install
+holds its own token; Cloudflare Access gates the *web* app, not the phone
+(DESIGN.md, Auth).
 
-| Define | Default | Notes |
+`--dart-define` values remain as **dev seeds** only — they pre-fill an
+unconfigured install so `flutter run` against the local Worker works without
+typing anything. A distributed release passes no defines, so the fields start
+empty.
+
+| Define (dev seed) | Suggested value | Notes |
 |--------|---------|-------|
 | `KRONICLE_API_URL` | `http://10.0.2.2:8787` | `10.0.2.2` is the host's `127.0.0.1` from the **Android emulator**. |
 | `KRONICLE_API_TOKEN` | `dev-token` | Matches `worker/.dev.vars`. |
 
-- **Emulator → local Worker:** defaults work as-is.
-- **Physical device → local Worker:** pass your machine's LAN IP, e.g.
-  `--dart-define=KRONICLE_API_URL=http://192.168.1.x:8787`.
-- **Deployed Worker:** `--dart-define=KRONICLE_API_URL=https://kronicle-api.<account>.workers.dev`
-  and the production `API_TOKEN`.
+- **Emulator → local Worker:** seed with the defines above, or type them in Settings.
+- **Physical device → local Worker:** use your machine's LAN IP, e.g.
+  `http://192.168.1.x:8787`.
+- **Deployed Worker:** `https://kronicle-api.<account>.workers.dev` and the
+  production `API_TOKEN`.
 
 Cleartext HTTP to `10.0.2.2`/LAN IPs works in debug builds (Flutter's debug
-manifest permits cleartext). A release build pointed at a plain-HTTP host would
+manifest permits cleartext). A release build talking to a plain-HTTP host would
 need a network-security config; pointing release at the HTTPS Worker avoids that.
+
+`minSdk` is pinned to 23 — the floor for the encrypted-storage backend.
 
 ## Run
 
@@ -55,21 +66,22 @@ flutter run \
 ```bash
 flutter analyze
 flutter test
-flutter build apk --release --dart-define=KRONICLE_API_URL=… --dart-define=KRONICLE_API_TOKEN=…
+# Distributable build — no token baked in; recipients connect via Settings.
+flutter build apk --release
 ```
 
 ## Layout
 
 ```
 lib/
-  config.dart            # --dart-define base URL + token
+  config.dart            # base URL + token: secure-storage backed, dart-define seeds
   nav.dart               # navigator + messenger keys, openEntity/openEditor helpers
   api/                   # models.dart, api_client.dart (bearer auth + in-memory cache)
   theme/theme.dart       # warm-editorial Material 3 (light/dark, status colors, flat)
   state/chat_context.dart# route-aware focus stack, editor bridge, refresh bus
   shell/app_shell.dart   # bottom-nav: Home · Entities · Timeline · Search
   widgets/               # status chip, entity tile, markdown (wikilinks), async view
-  screens/               # home, list, detail, editor, timeline, search, pickers
+  screens/               # home, list, detail, editor, timeline, search, settings, pickers
   chat/                  # controller (SSE + proposals), panel, host (bubble), diff
 assets/fonts/            # Literata, Inter, iA Writer Quattro (bundled, SIL OFL)
 ```

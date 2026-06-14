@@ -13,6 +13,10 @@ dependencies:
   cupertino_icons: ^1.0.8
   # Networking — the only runtime dependency beyond Flutter + the bundled fonts.
   http: ^1.2.2
+  # Encrypted-at-rest storage for the bearer token (Android Keystore-backed).
+  # The token is entered in-app, not embedded, so a distributed APK carries no
+  # secret. See lib/config.dart and DESIGN.md (Auth).
+  flutter_secure_storage: ^9.2.4
   # Rendering Markdown prose. DESIGN.md names flutter_markdown for the body.
   flutter_markdown: ^0.7.4
 

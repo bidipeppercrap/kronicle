@@ -6,6 +6,7 @@ import '../theme/theme.dart';
 import '../widgets/async_view.dart';
 import '../widgets/entity_tile.dart';
 import 'quick_capture.dart';
+import 'settings_screen.dart';
 
 class _HomeData {
   final List<Entity> stubs;
@@ -64,10 +65,27 @@ class _HomeScreenState extends State<HomeScreen> {
     if (await showQuickCapture(context)) _refresh();
   }
 
+  Future<void> _openSettings() async {
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+    );
+    // Server/token may have changed — the cache was cleared on save, so reload.
+    if (mounted) _refresh();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Kronicle')),
+      appBar: AppBar(
+        title: const Text('Kronicle'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Settings',
+            onPressed: _openSettings,
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _capture,
         icon: const Icon(Icons.add),
