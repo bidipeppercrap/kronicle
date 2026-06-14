@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { page } from '$app/state';
+	import { navigating, page } from '$app/state';
 	import EntityRow from '$lib/components/EntityRow.svelte';
 	import TypeIcon from '$lib/components/TypeIcon.svelte';
 	import { STATUS_DOT } from '$lib/entityMeta';
@@ -14,6 +14,23 @@
 	$effect(() => {
 		searchValue = data.filters.search;
 	});
+
+	// Results fade softly while a filter navigation is in flight.
+	const loading = $derived(navigating.to?.url.pathname === '/entities');
+
+	let searchTimer: ReturnType<typeof setTimeout> | undefined;
+
+	function submitSearch() {
+		clearTimeout(searchTimer);
+		const next = searchValue.trim() || null;
+		if (next === (data.filters.search || null)) return;
+		goto(buildUrl({ q: next }), { keepFocus: true });
+	}
+
+	function onSearchInput() {
+		clearTimeout(searchTimer);
+		searchTimer = setTimeout(submitSearch, 300);
+	}
 
 	function buildUrl(patch: Record<string, string | null>): string {
 		const params = new URLSearchParams(page.url.searchParams);
@@ -109,18 +126,20 @@
 			class="ml-auto flex min-w-44 items-center gap-2 rounded-full border border-line bg-surface px-3 py-1 focus-within:border-accent"
 			onsubmit={(e) => {
 				e.preventDefault();
-				goto(buildUrl({ q: searchValue.trim() || null }), { keepFocus: true });
+				submitSearch();
 			}}
 		>
-			<Search class="size-3.5 shrink-0 text-ink-faint" />
+			<Search class="size-3.5 shrink-0 text-ink-faint {loading ? 'animate-pulse text-accent' : ''}" />
 			<input
 				bind:value={searchValue}
+				oninput={onSearchInput}
 				placeholder="Filter…"
 				class="w-full bg-transparent py-0.5 text-sm text-ink outline-none placeholder:text-ink-faint"
 			/>
 		</form>
 	</div>
 
+	<div class="transition-opacity duration-300 {loading ? 'opacity-40' : 'opacity-100'}">
 	{#if data.items.length}
 		<p class="mb-1 px-3 text-xs text-ink-faint">
 			{data.total}
@@ -166,4 +185,5 @@
 			</p>
 		</div>
 	{/if}
+	</div>
 </div>

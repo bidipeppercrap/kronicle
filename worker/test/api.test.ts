@@ -402,6 +402,29 @@ describe("search", () => {
 
     expect((await req("/api/search")).status).toBe(400);
   });
+
+  it("ranks name matches above summary/content, exact above partial", async () => {
+    // Created oldest-first; updated_at would put these in reverse if it drove
+    // ordering. Relevance must override that.
+    await create({ name: "Pelican Bay", type: "location" }); // name prefix
+    await create({ name: "Old Pelt Road", type: "location" }); // name contains
+    await create({ name: "Pel", type: "character" }); // exact name
+    await create({
+      name: "Marketplace",
+      type: "location",
+      content: "Sells pelts and furs.",
+    }); // content only
+
+    const body = await req("/api/search?q=pel").then((r) =>
+      r.json<Record<string, any>>()
+    );
+    expect(body.items.map((e: any) => e.name)).toEqual([
+      "Pel",
+      "Pelican Bay",
+      "Old Pelt Road",
+      "Marketplace",
+    ]);
+  });
 });
 
 describe("media", () => {

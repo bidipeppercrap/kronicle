@@ -110,11 +110,28 @@ app.get("/entities", async (c) => {
   }
   const where = conds.length ? and(...conds) : undefined;
 
+  // When searching, rank by where the term hit — name matches are the most
+  // specific, then summary, then a bare content mention. LIKE is
+  // case-insensitive for ASCII, so the bare term acts as an exact-name check
+  // and the prefix pattern catches "starts with". updated_at only breaks ties.
+  const orderBy = q.search
+    ? [
+        sql`case
+          when ${entities.name} like ${q.search} then 0
+          when ${entities.name} like ${`${q.search}%`} then 1
+          when ${entities.name} like ${`%${q.search}%`} then 2
+          when ${entities.summary} like ${`%${q.search}%`} then 3
+          else 4
+        end`,
+        desc(entities.updated_at),
+      ]
+    : [desc(entities.updated_at)];
+
   const items = await db
     .select()
     .from(entities)
     .where(where)
-    .orderBy(desc(entities.updated_at))
+    .orderBy(...orderBy)
     .limit(q.limit)
     .offset(q.offset)
     .all();

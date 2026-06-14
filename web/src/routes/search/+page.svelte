@@ -13,6 +13,20 @@
 		query = data.q;
 	});
 
+	let searchTimer: ReturnType<typeof setTimeout> | undefined;
+
+	function navigate() {
+		clearTimeout(searchTimer);
+		const q = query.trim();
+		if (q === data.q) return;
+		goto(q ? `/search?q=${encodeURIComponent(q)}` : '/search', { keepFocus: true });
+	}
+
+	function onInput() {
+		clearTimeout(searchTimer);
+		searchTimer = setTimeout(navigate, 300);
+	}
+
 	const grouped = $derived(
 		ENTITY_TYPES.map((type: EntityType) => ({
 			type,
@@ -29,8 +43,7 @@
 	<form
 		onsubmit={(e) => {
 			e.preventDefault();
-			const q = query.trim();
-			goto(q ? `/search?q=${encodeURIComponent(q)}` : '/search', { keepFocus: true });
+			navigate();
 		}}
 		class="flex items-center gap-3 rounded-xl border border-line bg-surface px-4 shadow-sm focus-within:border-accent"
 	>
@@ -38,6 +51,7 @@
 		<!-- svelte-ignore a11y_autofocus -->
 		<input
 			bind:value={query}
+			oninput={onInput}
 			autofocus
 			placeholder="Search names, summaries, and prose…"
 			class="min-w-0 flex-1 bg-transparent py-4 font-prose text-lg text-ink outline-none placeholder:text-ink-faint"
