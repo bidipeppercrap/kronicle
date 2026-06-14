@@ -1,6 +1,8 @@
-# Kronicle
+<h1><img src="docs/logo.svg" alt="" width="32" height="32" align="top"> Kronicle</h1>
 
 A personal **storybuilding ideas vault**: capture ideas the moment they strike as stubs, develop them into drafts, then promote them to canon or reject them. See [DESIGN.md](DESIGN.md) for the full specification — read it first, and update it when the design changes.
+
+![Kronicle — an entity page with the per-entity AI chat panel open](docs/screenshot.png)
 
 ## Repository layout
 
