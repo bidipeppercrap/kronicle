@@ -33,6 +33,18 @@ need a network-security config; pointing release at the HTTPS Worker avoids that
 
 ## Run
 
+Start an Android emulator first (the defaults assume one — `10.0.2.2` is the
+emulator's route to the host's `127.0.0.1`). List the available AVDs and launch
+one, or start it from Android Studio's Device Manager:
+
+```bash
+flutter emulators                 # list configured emulators
+flutter emulators --launch <id>   # boot one, e.g. Pixel_7_API_34
+flutter devices                   # confirm the emulator is attached
+```
+
+With the emulator running, install dependencies and start the app:
+
 ```bash
 flutter pub get
 flutter run \
