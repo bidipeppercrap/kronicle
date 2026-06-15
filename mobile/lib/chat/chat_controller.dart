@@ -245,9 +245,23 @@ class ChatController extends ChangeNotifier {
           i = buf.indexOf('\n\n');
         }
       }
+
+      // The stream closed cleanly but left nothing on screen: an empty
+      // completion, text that scrubbed away to only [Proposed…]/[Context…]
+      // markers, or tool rounds that ran out before the model answered. Without
+      // this the blank assistant turn renders as nothing — the writer is left
+      // staring at their own message with no reply, no error, and (since busy
+      // is about to clear) no thinking indicator. Give them a visible reply.
+      if (visibleChatText(turn.text).isEmpty && turn.proposals.isEmpty) {
+        turn.text = turn.reading.isEmpty
+            ? "_I didn't get a response that time — try sending again._"
+            : "_I searched the vault but didn't have anything to add — try rephrasing._";
+      }
     } catch (e) {
       toast?.call('$e'.replaceFirst('Exception: ', ''), error: true);
-      if (turn.text.isEmpty && turn.proposals.isEmpty) turns.remove(turn);
+      if (visibleChatText(turn.text).isEmpty && turn.proposals.isEmpty) {
+        turns.remove(turn);
+      }
     } finally {
       busy = false;
       notifyListeners();
