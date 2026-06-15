@@ -50,9 +50,10 @@ class EntityTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = KronicleColors.of(context);
+    // No borderRadius: the splash fills the whole row edge-to-edge, clipped by
+    // whatever wraps it (a full-bleed list, or TileCard's rounded corners).
     return InkWell(
       onTap: onTap ?? () => openEntity(idOrSlug),
-      borderRadius: BorderRadius.circular(12),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Column(

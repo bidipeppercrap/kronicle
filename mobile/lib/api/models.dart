@@ -317,6 +317,33 @@ class TimelineResult {
   TimelineResult({required this.items, required this.eras});
 }
 
+/// GET/PUT /api/settings/ai — provider config stored server-side. The key
+/// itself is never returned; only whether one is set, a masked hint, and where
+/// it came from ('settings' = saved here, 'env' = the Worker's env var fallback).
+class AiSettings {
+  final bool apiKeySet;
+  final String? apiKeyHint;
+  final String? apiKeySource;
+  final String? apiUrl;
+  final String? model;
+
+  AiSettings({
+    required this.apiKeySet,
+    required this.apiKeyHint,
+    required this.apiKeySource,
+    required this.apiUrl,
+    required this.model,
+  });
+
+  factory AiSettings.fromJson(Map<String, dynamic> j) => AiSettings(
+        apiKeySet: j['api_key_set'] as bool? ?? false,
+        apiKeyHint: j['api_key_hint'] as String?,
+        apiKeySource: j['api_key_source'] as String?,
+        apiUrl: j['api_url'] as String?,
+        model: j['model'] as String?,
+      );
+}
+
 /// The standard list envelope: { items, total, limit, offset }.
 class EntityPage {
   final List<Entity> items;

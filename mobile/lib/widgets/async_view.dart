@@ -170,12 +170,15 @@ class TileCard extends StatelessWidget {
       if (i > 0) children.add(Divider(height: 1, color: colors.line));
       children.add(tiles[i]);
     }
-    return Container(
+    // A Material (not a plain Container) so the InkWell splashes of the tiles
+    // inside actually paint — a coloured Container would draw over the ink of
+    // the Scaffold's Material below and the touch effect would never show.
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
       clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: colors.line),
+        side: BorderSide(color: colors.line),
       ),
       child: Column(children: children),
     );

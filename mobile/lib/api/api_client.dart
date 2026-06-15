@@ -223,6 +223,24 @@ class ApiClient {
     );
   }
 
+  // ——— Settings ———
+
+  /// Current AI provider config (uncached — settings change rarely but should
+  /// always reflect the latest save). The key is never returned, only a hint.
+  Future<AiSettings> getAiSettings() async {
+    final j = await _get(_uri('/api/settings/ai')) as Map<String, dynamic>;
+    return AiSettings.fromJson(j);
+  }
+
+  /// Partial update — send only the fields to change. An empty `api_key` string
+  /// clears the saved key back to the Worker's env fallback; omitting it leaves
+  /// the stored key untouched (it is never echoed, so the field is usually blank).
+  Future<AiSettings> updateAiSettings(Map<String, dynamic> body) async {
+    final j = await _send('PUT', _uri('/api/settings/ai'), body)
+        as Map<String, dynamic>;
+    return AiSettings.fromJson(j);
+  }
+
   // ——— AI chat (Phase 4) ———
 
   /// Opens the streaming chat connection. Bypasses the cache entirely (it is a

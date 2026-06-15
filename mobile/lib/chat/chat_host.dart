@@ -43,10 +43,12 @@ class _ChatHostState extends State<ChatHost> {
     final size = MediaQuery.of(context).size;
     final pad = MediaQuery.of(context).padding;
 
-    // Default the bubble to the bottom-right, clear of the nav bar.
+    // Default the bubble to the bottom-right, lifted clear of the Capture FAB
+    // (which also lives bottom-right above the nav bar) so the two never
+    // overlap on first run — the writer can still drag it anywhere after.
     _c.bubbleOffset ??= Offset(
-      size.width - _bubbleSize - 16,
-      size.height - _bubbleSize - pad.bottom - 96,
+      size.width - _bubbleSize - _margin,
+      size.height - _bubbleSize - pad.bottom - 168,
     );
 
     return ListenableBuilder(
@@ -59,7 +61,9 @@ class _ChatHostState extends State<ChatHost> {
               Positioned(
                 left: 0,
                 right: 0,
-                bottom: 0,
+                // Ride above the soft keyboard so the composer and transcript
+                // stay visible while typing, instead of being covered by it.
+                bottom: MediaQuery.of(context).viewInsets.bottom,
                 child: ChatPanel(controller: _c),
               ),
             if (!_c.open) _bubble(size, pad),

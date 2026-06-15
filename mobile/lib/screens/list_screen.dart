@@ -133,7 +133,10 @@ class _ListScreenState extends State<ListScreen> {
                   _reload();
                 },
                 child: ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+                  // Full-bleed rows (no side padding) so each tile's tap splash
+                  // runs the full width of the screen; EntityTile keeps its own
+                  // inner padding for the text.
+                  padding: const EdgeInsets.fromLTRB(0, 8, 0, 96),
                   itemCount: page.items.length + (page.total > page.items.length ? 1 : 0),
                   separatorBuilder: (_, _) => Divider(height: 1, color: colors.line),
                   itemBuilder: (_, i) {

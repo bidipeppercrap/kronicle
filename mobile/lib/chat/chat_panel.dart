@@ -121,7 +121,7 @@ class _ChatPanelState extends State<ChatPanel> {
         children: [
           Icon(Icons.auto_awesome, size: 16, color: colors.accentInk),
           const SizedBox(width: 8),
-          Flexible(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
@@ -174,7 +174,6 @@ class _ChatPanelState extends State<ChatPanel> {
               ],
             ),
           ),
-          const Spacer(),
           if (c.turns.isNotEmpty)
             IconButton(
               tooltip: 'Clear chat',
@@ -520,9 +519,9 @@ class _ChatPanelState extends State<ChatPanel> {
 
   Widget _composer(BuildContext context, KronicleColors colors) {
     return Container(
-      padding: EdgeInsets.fromLTRB(
-        12, 8, 12, 8 + MediaQuery.of(context).viewInsets.bottom,
-      ),
+      // The host lifts the whole panel above the keyboard, so the composer no
+      // longer pads for it itself.
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: colors.line)),
       ),
@@ -534,6 +533,12 @@ class _ChatPanelState extends State<ChatPanel> {
               controller: _input,
               minLines: 1,
               maxLines: 4,
+              // Disable IME autocorrect/suggestions: the composing region they
+              // keep over the current word was re-committing already-deleted
+              // text on the next keystroke (backspace appeared to do nothing).
+              autocorrect: false,
+              enableSuggestions: false,
+              textCapitalization: TextCapitalization.sentences,
               textInputAction: TextInputAction.send,
               onSubmitted: (_) => _send(),
               decoration: InputDecoration(
