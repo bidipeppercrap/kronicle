@@ -533,9 +533,22 @@ class _ChatPanelState extends State<ChatPanel> {
               controller: _input,
               minLines: 1,
               maxLines: 4,
-              // Disable IME autocorrect/suggestions: the composing region they
-              // keep over the current word was re-committing already-deleted
-              // text on the next keystroke (backspace appeared to do nothing).
+              // Android keyboards (Gboard) keep a "composing region" underline
+              // over the word in progress. Deleting inside that region then
+              // typing makes the IME re-commit its own stale copy of the word,
+              // so already-deleted text reappears (type 'abcde', delete 'cde',
+              // type 'xyz' → 'abcdexyz'). Disabling autocorrect/suggestions
+              // alone didn't stop it — the region persists regardless. The fix
+              // is to collapse composing to empty after every edit, forcing the
+              // IME to start each keystroke from the field's real text so
+              // deletes always stick. (Trade-off: no on-the-fly composition for
+              // CJK/IME-heavy scripts — fine for this English-only tool.)
+              inputFormatters: [
+                TextInputFormatter.withFunction(
+                  (_, newValue) =>
+                      newValue.copyWith(composing: TextRange.empty),
+                ),
+              ],
               autocorrect: false,
               enableSuggestions: false,
               textCapitalization: TextCapitalization.sentences,
